@@ -39,10 +39,10 @@ jobs:
           - { os: macos-14,         suffix: darwin-arm64 }
           - { os: windows-latest,   suffix: win32-x64-msvc }
     steps:
-      - uses: actions/checkout@v4
-      - uses: pnpm/action-setup@v4
+      - uses: actions/checkout@v6
+      - uses: pnpm/action-setup@v6
         with: { version: 9 }
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v6
         with:
           node-version: '22'
       - uses: dtolnay/rust-toolchain@stable
@@ -54,7 +54,7 @@ jobs:
         run: pnpm build:napi
 
       - name: Vitest (NAPI-loaded branch)
-        run: pnpm test --reporter=json --outputFile=test-results.json
+        run: pnpm exec vitest run --reporter=json --outputFile=test-results.json
         shell: bash
 
       - name: Smoke gate — tests ran AND zero skipped (Linux/macOS)
@@ -96,7 +96,7 @@ jobs:
         shell: pwsh
 
       - name: Upload artefact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: sigil-napi-${{ matrix.suffix }}
           path: index.${{ matrix.suffix }}.node
@@ -110,7 +110,7 @@ jobs:
     name: Cargo tests (linux-x64-gnu)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - uses: dtolnay/rust-toolchain@stable
       - run: cargo test --workspace
 
@@ -125,12 +125,12 @@ jobs:
     needs: [build-and-test, cargo-tests]
     if: github.event_name == 'workflow_dispatch'
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
           fetch-depth: 0
-      - uses: pnpm/action-setup@v4
+      - uses: pnpm/action-setup@v6
         with: { version: 9 }
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v6
         with:
           node-version: '22'
           registry-url: 'https://registry.npmjs.org'
@@ -214,7 +214,7 @@ jobs:
           fi
 
       - run: pnpm install
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v7
         with:
           pattern: sigil-napi-*
           merge-multiple: true
