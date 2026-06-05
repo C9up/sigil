@@ -16,16 +16,14 @@ permissions:
   contents: read
 
 concurrency:
-  # Differentiated by event_name so a workflow_dispatch publish run is not
-  # cancelled by a subsequent push to main mid-flight.
   group: ${{ github.workflow }}-${{ github.ref }}-${{ github.event_name }}
   cancel-in-progress: true
 
 jobs:
-  # Native-runner build matrix. No cross-compilation — each runner produces the
-  # binary for its own platform via `pnpm build:napi` (cargo + scripts/copy-napi.mjs).
-  # Sigil's existing unit suite (5/5) re-asserts that argon2/bcrypt/scrypt round-trip
-  # via NAPI on each platform.
+  # 5-platform NAPI matrix. sigil is fully self-contained: its runtime and
+  # test suite have zero @c9up dependencies, so it builds and tests standalone
+  # with no workspace stub. darwin-x64 is cross-compiled on an arm64 runner
+  # (macos-13 Intel runners are scarce/deprecated); build-only.
   build-and-test:
     name: Build & test (${{ matrix.suffix }})
     runs-on: ${{ matrix.os }}
@@ -33,11 +31,11 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - { os: ubuntu-latest,    suffix: linux-x64-gnu }
-          - { os: ubuntu-24.04-arm, suffix: linux-arm64-gnu }
-          - { os: macos-13,         suffix: darwin-x64 }
-          - { os: macos-14,         suffix: darwin-arm64 }
-          - { os: windows-latest,   suffix: win32-x64-msvc }
+          - { os: ubuntu-latest,    suffix: linux-x64-gnu,   target: x86_64-unknown-linux-gnu,  test: true }
+          - { os: ubuntu-24.04-arm, suffix: linux-arm64-gnu, target: aarch64-unknown-linux-gnu, test: true }
+          - { os: macos-14,         suffix: darwin-x64,      target: x86_64-apple-darwin,       test: false }
+          - { os: macos-14,         suffix: darwin-arm64,    target: aarch64-apple-darwin,      test: true }
+          - { os: windows-latest,   suffix: win32-x64-msvc,  target: x86_64-pc-windows-msvc,    test: true }
     steps:
       - uses: actions/checkout@v6
       - uses: pnpm/action-setup@v6
@@ -46,19 +44,24 @@ jobs:
         with:
           node-version: '22'
       - uses: dtolnay/rust-toolchain@stable
+      - name: Add Rust target
+        run: rustup target add ${{ matrix.target }}
 
       - name: Install dependencies
-        run: pnpm install
+        run: pnpm install --no-frozen-lockfile
 
-      - name: Build NAPI binary
+      - name: Build NAPI binary (${{ matrix.target }})
         run: pnpm build:napi
+        env:
+          CARGO_BUILD_TARGET: ${{ matrix.target }}
 
-      - name: Vitest (NAPI-loaded branch)
+      - name: Vitest (JSON reporter)
+        if: matrix.test
         run: pnpm exec vitest run --reporter=json --outputFile=test-results.json
         shell: bash
 
       - name: Smoke gate — tests ran AND zero skipped (Linux/macOS)
-        if: runner.os != 'Windows'
+        if: matrix.test && runner.os != 'Windows'
         run: |
           if [ ! -f test-results.json ]; then
             echo "::error::test-results.json not produced — pnpm test failed before writing"
@@ -77,18 +80,19 @@ jobs:
         shell: bash
 
       - name: Smoke gate — tests ran AND zero skipped (Windows)
-        if: runner.os == 'Windows'
+        if: matrix.test && runner.os == 'Windows'
         run: |
-          if (-not (Test-Path test-results.json)) {
+          $path = "test-results.json"
+          if (-not (Test-Path $path)) {
             Write-Error "test-results.json not produced — pnpm test failed before writing"
             exit 1
           }
-          $total = python -c "import json,sys; d=json.load(open(sys.argv[1])); print(sum(1 for r in d['testResults'] for a in r['assertionResults']))" test-results.json
+          $total = python -c "import json,sys; d=json.load(open(sys.argv[1])); print(sum(1 for r in d['testResults'] for a in r['assertionResults']))" $path
           if ([int]$total -eq 0) {
             Write-Error "0 tests ran — test discovery is broken (check vitest include glob)"
             exit 1
           }
-          $skipped = python -c "import json,sys; d=json.load(open(sys.argv[1])); print(sum(1 for r in d['testResults'] for a in r['assertionResults'] if a['status']=='skipped'))" test-results.json
+          $skipped = python -c "import json,sys; d=json.load(open(sys.argv[1])); print(sum(1 for r in d['testResults'] for a in r['assertionResults'] if a['status']=='skipped'))" $path
           if ([int]$skipped -ne 0) {
             Write-Error "$skipped tests skipped — check NAPI binary load path"
             exit 1
@@ -102,10 +106,6 @@ jobs:
           path: index.${{ matrix.suffix }}.node
           if-no-files-found: error
 
-  # Rust-side unit tests. Single platform — the Rust logic is platform-
-  # independent. Tests both the `sigil-engine` crate (argon2/bcrypt/scrypt
-  # hash logic) and `sigil-engine-napi` (the NAPI wrapper) so any regression
-  # at either layer surfaces immediately.
   cargo-tests:
     name: Cargo tests (linux-x64-gnu)
     runs-on: ubuntu-latest
@@ -114,10 +114,10 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - run: cargo test --workspace
 
-  # Publish job — sigil is the npm-publish canary for the @c9up/* org (Story 52.1 AC6).
-  # ENABLED so the multi-platform sweep proves end-to-end on at least one package.
-  # Trigger: workflow_dispatch only (manual maintainer click in the GHA UI).
-  # NPM_TOKEN repository secret required.
+  # Publish job — gated on workflow_dispatch (manual maintainer trigger).
+  # Requires NPM_TOKEN secret + a v<MAJOR>.<MINOR>.<PATCH> tag at HEAD matching
+  # package.json. Drift gate refuses to overwrite a published version (or roll
+  # back to an older one) without `confirm_overwrite=YES`.
   publish:
     name: Publish to npm
     runs-on: ubuntu-latest
@@ -213,7 +213,7 @@ jobs:
             echo "Drift gate passed: local $local_v > registry $npm_v"
           fi
 
-      - run: pnpm install
+      - run: pnpm install --no-frozen-lockfile
       - uses: actions/download-artifact@v7
         with:
           pattern: sigil-napi-*
