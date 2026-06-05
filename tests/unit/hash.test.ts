@@ -1,0 +1,197 @@
+import { describe, expect, it } from "vitest";
+import { E_SIGIL_NAPI_REQUIRED, Hash } from "../../src/index.js";
+
+describe("sigil > Hash", () => {
+	it("creates a hash instance", () => {
+		const hash = new Hash({
+			default: "scrypt",
+			drivers: { scrypt: { driver: "scrypt" } },
+		});
+		expect(hash).toBeDefined();
+	});
+
+	it("throws on unknown driver", () => {
+		const hash = new Hash({
+			default: "unknown",
+			drivers: {},
+		});
+		expect(() => hash.use("unknown")).toThrow("not configured");
+	});
+
+	it("drivers either hash via NAPI or throw SIGIL_NAPI_REQUIRED", async () => {
+		// Probe NAPI availability via argon2 (cheapest of the three) and branch
+		// assertions accordingly. The previous version asserted only the
+		// NAPI-absent branch — once the binary lands locally (dev or CI with
+		// the prebuilt artifact wired up), it would fail without surfacing real
+		// information. Story 40.3 added this conditional shape.
+		const probe = new Hash({
+			default: "argon2",
+			drivers: { argon2: { driver: "argon2" } },
+		});
+		let napiLoaded = false;
+		try {
+			await probe.make("probe");
+			napiLoaded = true;
+		} catch (err) {
+			if (
+				!(err instanceof Error && err.message.includes("SIGIL_NAPI_REQUIRED"))
+			)
+				throw err;
+		}
+
+		const drivers = [
+			{ name: "argon2", config: { driver: "argon2" } },
+			{ name: "bcrypt", config: { driver: "bcrypt", rounds: 10 } },
+			{ name: "scrypt", config: { driver: "scrypt" } },
+		];
+
+		for (const { name, config } of drivers) {
+			const hash = new Hash({ default: name, drivers: { [name]: config } });
+			if (napiLoaded) {
+				const out = await hash.make("test");
+				expect(typeof out).toBe("string");
+				expect(out.length).toBeGreaterThan(0);
+				expect(await hash.verify("test", out)).toBe(true);
+				expect(await hash.verify("wrong", out)).toBe(false);
+			} else {
+				await expect(hash.make("test")).rejects.toThrow("SIGIL_NAPI_REQUIRED");
+			}
+		}
+	});
+
+	it("use() returns a specific driver", () => {
+		const hash = new Hash({
+			default: "argon2",
+			drivers: {
+				argon2: { driver: "argon2" },
+				bcrypt: { driver: "bcrypt" },
+				scrypt: { driver: "scrypt" },
+			},
+		});
+		expect(hash.use("argon2")).toBeDefined();
+		expect(hash.use("bcrypt")).toBeDefined();
+		expect(hash.use("scrypt")).toBeDefined();
+	});
+
+	it("throws E_SIGIL_NAPI_REQUIRED with code field when binary missing", async () => {
+		// Detect the NAPI-absent branch via the same probe technique used above.
+		// If NAPI is loaded locally, this test asserts the typed-Error contract
+		// by forcing requireNative's null path is unreachable — so we skip with
+		// a clear message in that case (the contract is still type-asserted at
+		// construction by the import).
+		const probe = new Hash({
+			default: "argon2",
+			drivers: { argon2: { driver: "argon2" } },
+		});
+		try {
+			await probe.make("probe");
+			// NAPI loaded — instanceof guarantee is asserted by the import + class
+			// declaration; nothing else to assert without monkey-patching `native`.
+			expect(E_SIGIL_NAPI_REQUIRED.prototype).toBeInstanceOf(Error);
+			const synthetic = new E_SIGIL_NAPI_REQUIRED("argon2");
+			expect(synthetic.code).toBe("SIGIL_NAPI_REQUIRED");
+			expect(synthetic.name).toBe("E_SIGIL_NAPI_REQUIRED");
+			expect(synthetic.message).toContain("SIGIL_NAPI_REQUIRED");
+			return;
+		} catch (err) {
+			// NAPI absent — assert the runtime throw is the typed Error.
+			expect(err).toBeInstanceOf(E_SIGIL_NAPI_REQUIRED);
+			expect((err as E_SIGIL_NAPI_REQUIRED).code).toBe("SIGIL_NAPI_REQUIRED");
+			expect((err as E_SIGIL_NAPI_REQUIRED).name).toBe("E_SIGIL_NAPI_REQUIRED");
+		}
+	});
+
+	it("argon2 driver honors custom memoryKib/iterations/parallelism", async () => {
+		const probe = new Hash({
+			default: "argon2",
+			drivers: { argon2: { driver: "argon2" } },
+		});
+		let napiLoaded = false;
+		try {
+			await probe.make("probe");
+			napiLoaded = true;
+		} catch {
+			napiLoaded = false;
+		}
+		if (!napiLoaded) return; // NAPI absent — params plumbing has nothing to assert
+
+		const hardened = new Hash({
+			default: "argon2",
+			drivers: {
+				argon2: {
+					driver: "argon2",
+					memoryKib: 32 * 1024,
+					iterations: 3,
+					parallelism: 2,
+				},
+			},
+		});
+		const out = await hardened.make("password");
+		// The argon2 PHC string encodes the params used at hash time.
+		expect(out).toContain("m=32768");
+		expect(out).toContain("t=3");
+		expect(out).toContain("p=2");
+		expect(await hardened.verify("password", out)).toBe(true);
+	});
+
+	it("rejects passwords exceeding max bytes", async () => {
+		for (const driver of ["argon2", "bcrypt", "scrypt"]) {
+			const hash = new Hash({
+				default: driver,
+				drivers: { [driver]: { driver } },
+			});
+			const longPassword = "a".repeat(2000);
+			await expect(hash.make(longPassword)).rejects.toThrow("maximum length");
+		}
+	});
+
+	describe("bcrypt 72-byte boundary", () => {
+		// Bcrypt silently truncates inputs past 72 bytes — two distinct
+		// passphrases sharing a 72-byte prefix would otherwise hash
+		// identically. The driver must reject 73+ byte inputs before they
+		// reach the Rust binding. 71 and 72 must still be accepted (or
+		// surface SIGIL_NAPI_REQUIRED if the native binary is absent —
+		// either outcome proves the byte-length gate let the call through).
+		const make = (driver: string) =>
+			new Hash({
+				default: driver,
+				drivers: { [driver]: { driver } },
+			});
+
+		it("accepts 71 bytes", async () => {
+			const hash = make("bcrypt");
+			try {
+				const out = await hash.make("a".repeat(71));
+				expect(typeof out).toBe("string");
+			} catch (err) {
+				expect((err as { code?: string }).code).toBe("SIGIL_NAPI_REQUIRED");
+			}
+		});
+
+		it("accepts exactly 72 bytes", async () => {
+			const hash = make("bcrypt");
+			try {
+				const out = await hash.make("a".repeat(72));
+				expect(typeof out).toBe("string");
+			} catch (err) {
+				expect((err as { code?: string }).code).toBe("SIGIL_NAPI_REQUIRED");
+			}
+		});
+
+		it("rejects 73 bytes with a bcrypt-specific message", async () => {
+			const hash = make("bcrypt");
+			await expect(hash.make("a".repeat(73))).rejects.toThrow(/Bcrypt/);
+		});
+
+		it("argon2 accepts the same 73-byte input that bcrypt rejects", async () => {
+			const hash = make("argon2");
+			try {
+				const out = await hash.make("a".repeat(73));
+				expect(typeof out).toBe("string");
+			} catch (err) {
+				// Native missing is OK — proves the size gate let it through
+				expect((err as { code?: string }).code).toBe("SIGIL_NAPI_REQUIRED");
+			}
+		});
+	});
+});
