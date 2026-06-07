@@ -1,6 +1,6 @@
 import type { HashConfig } from "./Hash.js";
 import { Hash } from "./Hash.js";
-import { _setHash } from "./services/main.js";
+import { setHash } from "./services/main.js";
 
 /**
  * Duck-typed host context — sigil stays publishable without importing
@@ -43,7 +43,7 @@ export default class SigilProvider {
 	}
 
 	async boot() {
-		_setHash(this.app.container.resolve<Hash>(Hash));
+		setHash(this.app.container.resolve<Hash>(Hash));
 	}
 
 	async shutdown() {}

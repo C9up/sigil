@@ -12,28 +12,28 @@
 
 import type { Hash } from "../Hash.js";
 
-let _instance: Hash | undefined;
+let instance: Hash | undefined;
 
 /** @internal Bind the singleton (called by SigilProvider). */
-export function _setHash(instance: Hash): void {
-	_instance = instance;
+export function setHash(value: Hash): void {
+	instance = value;
 }
 
 /** @internal Read the singleton (or `undefined` pre-boot). */
-export function _getHash(): Hash | undefined {
-	return _instance;
+export function getHash(): Hash | undefined {
+	return instance;
 }
 
 const hash: Hash = new Proxy({} as Hash, {
 	get(_target, prop) {
-		if (!_instance) {
+		if (!instance) {
 			throw new Error(
 				"[sigil] Hash singleton accessed before SigilProvider.boot() ran. " +
 					"Check that `@c9up/sigil/provider` is listed in your reamrc.ts providers.",
 			);
 		}
-		const value = Reflect.get(_instance, prop, _instance);
-		return typeof value === "function" ? value.bind(_instance) : value;
+		const value = Reflect.get(instance, prop, instance);
+		return typeof value === "function" ? value.bind(instance) : value;
 	},
 });
 
