@@ -122,12 +122,20 @@ fn parse_scrypt_hash(hash: &str) -> Option<(u8, u32, u32, Vec<u8>, Vec<u8>)> {
     Some((log_n, r, p, salt, stored_key))
 }
 
-pub fn scrypt_verify(password: &str, hash: &str, key_len: usize) -> bool {
+pub fn scrypt_verify(password: &str, hash: &str, _key_len: usize) -> bool {
     if password.len() > MAX_PASSWORD_BYTES {
         return false;
     }
     let Some((log_n, r, p, salt, stored_key)) = parse_scrypt_hash(hash) else { return false };
-    if stored_key.len() != key_len {
+    // Derive the key length from the stored hash itself, NOT the caller's live
+    // `config.keyLength`. The scrypt format encodes ln/r/p but not key_len, so
+    // verifying against the current config silently invalidated every hash made
+    // under a previous length — a config change locked out all existing users.
+    // The stored key's length IS the length it was derived with. Guard against
+    // an empty key so a crafted `…$salt$` hash (key_len 0) can't trivially
+    // match any password via an empty-vs-empty comparison.
+    let key_len = stored_key.len();
+    if key_len == 0 {
         return false;
     }
     // Re-derive with the params ENCODED IN THE HASH, not the current
@@ -238,9 +246,25 @@ mod tests {
     }
 
     #[test]
-    fn scrypt_wrong_key_len() {
+    fn scrypt_verify_survives_keylen_config_change() {
+        // The stored key length is authoritative — a hash produced under
+        // key_len 64 must still verify after config.keyLength changes. Before
+        // the fix a mismatched caller length rejected every prior hash, a silent
+        // mass lockout (audit 2026-06-13). The caller's key_len is now ignored.
         let hash = scrypt_hash("password", 32, 64).unwrap();
-        assert!(!scrypt_verify("password", &hash, 32));
+        assert!(scrypt_verify("password", &hash, 32));
+        assert!(scrypt_verify("password", &hash, 128));
+        assert!(!scrypt_verify("wrong", &hash, 32));
+    }
+
+    #[test]
+    fn scrypt_rejects_empty_stored_key() {
+        // A crafted hash with an empty key field must NOT trivially match:
+        // deriving key_len from an empty stored key would compare empty-vs-empty
+        // and accept any password. Fail closed.
+        let salt = hex::encode(b"0123456789abcdef");
+        let hash = format!("scrypt$ln=14$r=8$p=1${}$", salt);
+        assert!(!scrypt_verify("anything", &hash, 64));
     }
 
     #[test]
