@@ -5,7 +5,7 @@
  *   import hash from '@c9up/sigil/services/main'
  *
  *   const digest = await hash.make('hunter2')
- *   const ok = await hash.verify(digest, 'hunter2')
+ *   const ok = await hash.verify('hunter2', digest) // verify(value, hash)
  *
  * Populated by `SigilProvider.boot()`.
  */
