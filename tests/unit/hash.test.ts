@@ -194,4 +194,34 @@ describe("sigil > Hash", () => {
 			}
 		});
 	});
+
+	describe("needsReHash (param/algo drift — pure parse, no native)", () => {
+		it("argon2: false when params match, true when they drift or algo differs", () => {
+			const h = new Hash({
+				default: "argon2",
+				drivers: {
+					argon2: {
+						driver: "argon2",
+						memoryKib: 65536,
+						iterations: 3,
+						parallelism: 4,
+					},
+				},
+			});
+			expect(h.needsReHash("$argon2id$v=19$m=65536,t=3,p=4$abc$def")).toBe(
+				false,
+			);
+			expect(h.needsReHash("$argon2id$v=19$m=19456,t=2,p=1$abc$def")).toBe(true);
+			expect(h.needsReHash("$2b$12$" + "x".repeat(53))).toBe(true); // bcrypt under argon driver
+		});
+
+		it("bcrypt: compares the cost factor to the configured rounds", () => {
+			const h = new Hash({
+				default: "bcrypt",
+				drivers: { bcrypt: { driver: "bcrypt", rounds: 12 } },
+			});
+			expect(h.needsReHash("$2b$12$" + "x".repeat(53))).toBe(false);
+			expect(h.needsReHash("$2b$10$" + "x".repeat(53))).toBe(true);
+		});
+	});
 });

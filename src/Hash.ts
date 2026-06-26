@@ -24,6 +24,13 @@ export interface HashDriver {
 	make(value: string): Promise<string>;
 	/** Verify `value` against a stored `hash`. Arg order mirrors AdonisJS: (hash, value). */
 	verify(hash: string, value: string): Promise<boolean>;
+	/**
+	 * Whether `hash` should be re-hashed because it was produced by a different
+	 * algorithm or with different parameters than this driver's current config
+	 * (AdonisJS `hash.needsReHash`). Call after a successful verify to upgrade
+	 * stored hashes on login. Parses the hash's embedded params — no native call.
+	 */
+	needsReHash(hash: string): boolean;
 }
 
 export interface HashConfig {
@@ -89,6 +96,20 @@ class Argon2Driver implements HashDriver {
 		await ensureNative();
 		return requireNative(argon2Verify(value, hash), "argon2");
 	}
+
+	needsReHash(hash: string): boolean {
+		if (!hash.startsWith("$argon2")) return true; // different algorithm
+		const o = this.#options;
+		if (!o) return false; // native defaults — no configured params to drift from
+		const m = hash.match(/m=(\d+),t=(\d+),p=(\d+)/);
+		if (!m) return true;
+		if (o.memoryKib !== undefined && Number(m[1]) !== o.memoryKib) return true;
+		if (o.iterations !== undefined && Number(m[2]) !== o.iterations)
+			return true;
+		if (o.parallelism !== undefined && Number(m[3]) !== o.parallelism)
+			return true;
+		return false;
+	}
 }
 
 class BcryptDriver implements HashDriver {
@@ -116,6 +137,12 @@ class BcryptDriver implements HashDriver {
 	async verify(hash: string, value: string): Promise<boolean> {
 		await ensureNative();
 		return requireNative(bcryptVerify(value, hash), "bcrypt");
+	}
+
+	needsReHash(hash: string): boolean {
+		const m = hash.match(/^\$2[aby]\$(\d{2})\$/);
+		if (!m) return true; // not a bcrypt hash → re-hash
+		return Number(m[1]) !== this.#rounds;
 	}
 }
 
@@ -146,6 +173,12 @@ class ScryptDriver implements HashDriver {
 		await ensureNative();
 		return requireNative(scryptVerify(value, hash, this.#keyLength), "scrypt");
 	}
+
+	needsReHash(_hash: string): boolean {
+		// scrypt hashes don't carry a self-describing, portable param header we can
+		// reliably introspect here, so we conservatively never force a re-hash.
+		return false;
+	}
 }
 
 const driverFactories: Record<
@@ -174,6 +207,11 @@ export class Hash {
 	}
 	async verify(hash: string, value: string): Promise<boolean> {
 		return this.use().verify(hash, value);
+	}
+
+	/** Whether `hash` should be re-hashed under the default driver's current params. */
+	needsReHash(hash: string): boolean {
+		return this.use().needsReHash(hash);
 	}
 
 	use(name?: string): HashDriver {
