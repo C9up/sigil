@@ -51,8 +51,8 @@ describe("sigil > Hash", () => {
 				const out = await hash.make("test");
 				expect(typeof out).toBe("string");
 				expect(out.length).toBeGreaterThan(0);
-				expect(await hash.verify("test", out)).toBe(true);
-				expect(await hash.verify("wrong", out)).toBe(false);
+				expect(await hash.verify(out, "test")).toBe(true);
+				expect(await hash.verify(out, "wrong")).toBe(false);
 			} else {
 				await expect(hash.make("test")).rejects.toThrow("SIGIL_NAPI_REQUIRED");
 			}
@@ -131,7 +131,7 @@ describe("sigil > Hash", () => {
 		expect(out).toContain("m=32768");
 		expect(out).toContain("t=3");
 		expect(out).toContain("p=2");
-		expect(await hardened.verify("password", out)).toBe(true);
+		expect(await hardened.verify(out, "password")).toBe(true);
 	});
 
 	it("rejects passwords exceeding max bytes", async () => {

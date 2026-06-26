@@ -2,7 +2,7 @@
  * Hash — multi-driver password hashing service.
  *
  *   await hash.make('password')
- *   await hash.verify('password', hashed)
+ *   await hash.verify(hashed, 'password')   // verify(hash, plainValue) — AdonisJS order
  *
  * All drivers backed by Rust NAPI — no JS/TS fallback.
  * Drivers: argon2id, bcrypt, scrypt.
@@ -22,7 +22,8 @@ import {
 
 export interface HashDriver {
 	make(value: string): Promise<string>;
-	verify(value: string, hash: string): Promise<boolean>;
+	/** Verify `value` against a stored `hash`. Arg order mirrors AdonisJS: (hash, value). */
+	verify(hash: string, value: string): Promise<boolean>;
 }
 
 export interface HashConfig {
@@ -84,7 +85,7 @@ class Argon2Driver implements HashDriver {
 		return requireNative(argon2Hash(value, this.#options), "argon2");
 	}
 
-	async verify(value: string, hash: string): Promise<boolean> {
+	async verify(hash: string, value: string): Promise<boolean> {
 		await ensureNative();
 		return requireNative(argon2Verify(value, hash), "argon2");
 	}
@@ -112,7 +113,7 @@ class BcryptDriver implements HashDriver {
 		return requireNative(bcryptHash(value, this.#rounds), "bcrypt");
 	}
 
-	async verify(value: string, hash: string): Promise<boolean> {
+	async verify(hash: string, value: string): Promise<boolean> {
 		await ensureNative();
 		return requireNative(bcryptVerify(value, hash), "bcrypt");
 	}
@@ -141,7 +142,7 @@ class ScryptDriver implements HashDriver {
 		);
 	}
 
-	async verify(value: string, hash: string): Promise<boolean> {
+	async verify(hash: string, value: string): Promise<boolean> {
 		await ensureNative();
 		return requireNative(scryptVerify(value, hash, this.#keyLength), "scrypt");
 	}
@@ -171,8 +172,8 @@ export class Hash {
 	async make(value: string): Promise<string> {
 		return this.use().make(value);
 	}
-	async verify(value: string, hash: string): Promise<boolean> {
-		return this.use().verify(value, hash);
+	async verify(hash: string, value: string): Promise<boolean> {
+		return this.use().verify(hash, value);
 	}
 
 	use(name?: string): HashDriver {
