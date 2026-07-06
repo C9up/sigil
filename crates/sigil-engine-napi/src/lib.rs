@@ -22,29 +22,47 @@ pub struct Argon2Options {
     pub iterations: Option<u32>,
     /// Parallelism (lanes). ≥ 1.
     pub parallelism: Option<u32>,
+    /// Secret pepper. Not stored in the hash; required identically at verify.
+    pub secret: Option<Buffer>,
+}
+
+#[napi(object)]
+pub struct ScryptOptions {
+    /// CPU/memory cost (N). Power of two > 1. Default 16384.
+    pub cost: Option<u32>,
+    /// Block size (r). Default 8.
+    pub block_size: Option<u32>,
+    /// Parallelization (p). Default 1.
+    pub parallelization: Option<u32>,
+    /// Derived key length in bytes. Default 64.
+    pub key_length: Option<u32>,
+    /// Salt size in bytes. Default 16.
+    pub salt_length: Option<u32>,
 }
 
 #[napi]
 pub fn argon2_hash(password: String, options: Option<Argon2Options>) -> Result<String> {
-    wrap(move || {
-        let opts = options
-            .map(|o| sigil_engine::Argon2Options {
-                memory_kib: o.memory_kib,
-                iterations: o.iterations,
-                parallelism: o.parallelism,
-            })
-            .unwrap_or(sigil_engine::Argon2Options {
-                memory_kib: None,
-                iterations: None,
-                parallelism: None,
-            });
-        sigil_engine::argon2_hash(&password, opts)
-    })
+    // Convert the Buffer to an owned Vec BEFORE the unwind-safe closure — the
+    // napi Buffer is not UnwindSafe.
+    let opts = options
+        .map(|o| sigil_engine::Argon2Options {
+            memory_kib: o.memory_kib,
+            iterations: o.iterations,
+            parallelism: o.parallelism,
+            secret: o.secret.map(|b| b.to_vec()),
+        })
+        .unwrap_or_default();
+    wrap(move || sigil_engine::argon2_hash(&password, opts))
 }
 
 #[napi]
-pub fn argon2_verify(password: String, hash: String) -> Result<bool> {
-    Ok(sigil_engine::argon2_verify(&password, &hash))
+pub fn argon2_verify(password: String, hash: String, secret: Option<Buffer>) -> Result<bool> {
+    let secret_vec = secret.map(|b| b.to_vec());
+    Ok(sigil_engine::argon2_verify(
+        &password,
+        &hash,
+        secret_vec.as_deref(),
+    ))
 }
 
 #[napi]
@@ -58,19 +76,20 @@ pub fn bcrypt_verify(password: String, hash: String) -> Result<bool> {
 }
 
 #[napi]
-pub fn scrypt_hash(password: String, salt_len: Option<u32>, key_len: Option<u32>) -> Result<String> {
-    wrap(|| sigil_engine::scrypt_hash(
-        &password,
-        salt_len.unwrap_or(32) as usize,
-        key_len.unwrap_or(64) as usize,
-    ))
+pub fn scrypt_hash(password: String, options: Option<ScryptOptions>) -> Result<String> {
+    let opts = options
+        .map(|o| sigil_engine::ScryptOptions {
+            cost: o.cost,
+            block_size: o.block_size,
+            parallelization: o.parallelization,
+            key_length: o.key_length.map(|v| v as usize),
+            salt_length: o.salt_length.map(|v| v as usize),
+        })
+        .unwrap_or_default();
+    wrap(move || sigil_engine::scrypt_hash(&password, opts))
 }
 
 #[napi]
-pub fn scrypt_verify(password: String, hash: String, key_len: Option<u32>) -> Result<bool> {
-    Ok(sigil_engine::scrypt_verify(
-        &password,
-        &hash,
-        key_len.unwrap_or(64) as usize,
-    ))
+pub fn scrypt_verify(password: String, hash: String) -> Result<bool> {
+    Ok(sigil_engine::scrypt_verify(&password, &hash))
 }

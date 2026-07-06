@@ -4,10 +4,22 @@
  *   await hash.make('password')
  *   await hash.verify(hashed, 'password')   // verify(hash, plainValue) — AdonisJS order
  *
- * All drivers backed by Rust NAPI — no JS/TS fallback.
- * Drivers: argon2id, bcrypt, scrypt.
+ * All real drivers are backed by Rust NAPI — no JS/TS fallback.
+ * Drivers: argon2id, bcrypt, scrypt (+ a `fake` test driver via hash.fake()).
+ *
+ * Structure vs `@adonisjs/hash`: Adonis splits a `HashManager` (holds the list
+ * of hashers) from a per-driver `Hash`. Sigil keeps a single public `Hash`
+ * class as the manager (the container token consumers already resolve) and
+ * exposes the per-driver facade as `Hasher` — Adonis's `Hash`. `use()` returns
+ * a `Hasher`, so `isValidHash`/`assertEquals`/… are available off both.
+ *
+ * Config shape: Adonis embeds live factory closures in `config.list`. Sigil's
+ * provider hydrates config from a serializable store, so the config is
+ * `{ default, drivers: { <name>: { driver, ...options } } }` — a deliberate,
+ * serializable divergence, not the `list` factory form.
  */
 
+import { AssertionError } from "node:assert";
 import {
 	type Argon2NativeOptions,
 	argon2Hash,
@@ -16,11 +28,17 @@ import {
 	bcryptVerify,
 	isNativeLoaded,
 	loadNative,
+	type ScryptNativeOptions,
 	scryptHash,
 	scryptVerify,
 } from "./native.js";
 
 export interface HashDriver {
+	/**
+	 * Whether `value` looks like a hash this driver produced. Format check only
+	 * — no cryptographic verification (AdonisJS `isValidHash`).
+	 */
+	isValidHash(value: string): boolean;
 	make(value: string): Promise<string>;
 	/** Verify `value` against a stored `hash`. Arg order mirrors AdonisJS: (hash, value). */
 	verify(hash: string, value: string): Promise<boolean>;
@@ -68,18 +86,32 @@ function requireNative<T>(result: T | null, driver: string): T {
 
 class Argon2Driver implements HashDriver {
 	#options: Argon2NativeOptions | undefined;
+	#secret: Buffer | undefined;
 
 	constructor(config: Record<string, unknown> = {}) {
-		// Accept `{ memoryKib, iterations, parallelism }`. Numeric coercion is
-		// strict — non-numbers are ignored so a config typo never silently
-		// downgrades the params.
+		// Accept `{ memory | memoryKib, iterations, parallelism, secret }`.
+		// Numeric coercion is strict — non-numbers are ignored so a config typo
+		// never silently downgrades the params.
 		const opts: Argon2NativeOptions = {};
-		if (typeof config.memoryKib === "number") opts.memoryKib = config.memoryKib;
+		// AdonisJS names the memory option `memory` (KiB). Read it first, keeping
+		// `memoryKib` as a backwards-compatible alias, so a config copied from an
+		// Adonis app is not silently downgraded to native defaults.
+		if (typeof config.memory === "number") opts.memoryKib = config.memory;
+		else if (typeof config.memoryKib === "number")
+			opts.memoryKib = config.memoryKib;
 		if (typeof config.iterations === "number")
 			opts.iterations = config.iterations;
 		if (typeof config.parallelism === "number")
 			opts.parallelism = config.parallelism;
+		if (typeof config.secret === "string" && config.secret.length > 0) {
+			this.#secret = Buffer.from(config.secret, "utf8");
+			opts.secret = this.#secret;
+		}
 		this.#options = Object.keys(opts).length > 0 ? opts : undefined;
+	}
+
+	isValidHash(hash: string): boolean {
+		return /^\$argon2(id|i|d)\$/.test(hash);
 	}
 
 	async make(value: string): Promise<string> {
@@ -94,7 +126,7 @@ class Argon2Driver implements HashDriver {
 
 	async verify(hash: string, value: string): Promise<boolean> {
 		await ensureNative();
-		return requireNative(argon2Verify(value, hash), "argon2");
+		return requireNative(argon2Verify(value, hash, this.#secret), "argon2");
 	}
 
 	needsReHash(hash: string): boolean {
@@ -116,6 +148,10 @@ class BcryptDriver implements HashDriver {
 	#rounds: number;
 	constructor(config: Record<string, unknown> = {}) {
 		this.#rounds = typeof config.rounds === "number" ? config.rounds : 12;
+	}
+
+	isValidHash(hash: string): boolean {
+		return /^\$2[aby]\$\d{2}\$/.test(hash);
 	}
 
 	async make(value: string): Promise<string> {
@@ -147,13 +183,39 @@ class BcryptDriver implements HashDriver {
 }
 
 class ScryptDriver implements HashDriver {
-	#keyLength: number;
-	#saltLength: number;
+	#options: ScryptNativeOptions;
+	#cost: number;
+	#blockSize: number;
+	#parallelization: number;
+	#maxMemory: number;
+
 	constructor(config: Record<string, unknown> = {}) {
-		this.#keyLength =
-			typeof config.keyLength === "number" ? config.keyLength : 64;
-		this.#saltLength =
-			typeof config.saltLength === "number" ? config.saltLength : 32;
+		// AdonisJS scrypt config names: cost (N), blockSize (r), parallelization
+		// (p), keyLength, saltSize, maxMemory. Defaults match Adonis.
+		this.#cost = typeof config.cost === "number" ? config.cost : 16384;
+		this.#blockSize =
+			typeof config.blockSize === "number" ? config.blockSize : 8;
+		this.#parallelization =
+			typeof config.parallelization === "number" ? config.parallelization : 1;
+		this.#maxMemory =
+			typeof config.maxMemory === "number"
+				? config.maxMemory
+				: 32 * 1024 * 1024;
+		const opts: ScryptNativeOptions = {
+			cost: this.#cost,
+			blockSize: this.#blockSize,
+			parallelization: this.#parallelization,
+		};
+		if (typeof config.keyLength === "number") opts.keyLength = config.keyLength;
+		// Accept the Adonis name `saltSize`, keeping `saltLength` as an alias.
+		if (typeof config.saltSize === "number") opts.saltLength = config.saltSize;
+		else if (typeof config.saltLength === "number")
+			opts.saltLength = config.saltLength;
+		this.#options = opts;
+	}
+
+	isValidHash(hash: string): boolean {
+		return /^\$scrypt\$n=\d+,r=\d+,p=\d+\$/.test(hash);
 	}
 
 	async make(value: string): Promise<string> {
@@ -162,21 +224,50 @@ class ScryptDriver implements HashDriver {
 				`Password exceeds maximum length of ${MAX_PASSWORD_BYTES} bytes`,
 			);
 		}
+		// AdonisJS-parity memory guard: the working set is 128 * N * r bytes;
+		// reject configs whose set would meet or exceed maxMemory. Fail closed
+		// rather than let the native derivation allocate past the bound.
+		if (128 * this.#cost * this.#blockSize >= this.#maxMemory) {
+			throw new Error(
+				`Scrypt working set (128 * cost * blockSize) exceeds maxMemory of ${this.#maxMemory} bytes; raise maxMemory or lower cost/blockSize`,
+			);
+		}
 		await ensureNative();
-		return requireNative(
-			scryptHash(value, this.#saltLength, this.#keyLength),
-			"scrypt",
-		);
+		return requireNative(scryptHash(value, this.#options), "scrypt");
 	}
 
 	async verify(hash: string, value: string): Promise<boolean> {
 		await ensureNative();
-		return requireNative(scryptVerify(value, hash, this.#keyLength), "scrypt");
+		return requireNative(scryptVerify(value, hash), "scrypt");
 	}
 
+	needsReHash(hash: string): boolean {
+		// The Adonis-parity PHC form encodes n/r/p — compare them to the config.
+		const m = hash.match(/^\$scrypt\$n=(\d+),r=(\d+),p=(\d+)\$/);
+		if (!m) return true; // not a scrypt hash (or the old format) → re-hash
+		if (Number(m[1]) !== this.#cost) return true;
+		if (Number(m[2]) !== this.#blockSize) return true;
+		if (Number(m[3]) !== this.#parallelization) return true;
+		return false;
+	}
+}
+
+/**
+ * Fake driver for tests (AdonisJS `Fake`): no hashing. `make` is identity,
+ * `verify` is plain string equality, `needsReHash` is always false. Enabled via
+ * `hash.fake()`.
+ */
+class FakeDriver implements HashDriver {
+	isValidHash(_hash: string): boolean {
+		return true;
+	}
+	async make(value: string): Promise<string> {
+		return value;
+	}
+	async verify(hash: string, value: string): Promise<boolean> {
+		return hash === value;
+	}
 	needsReHash(_hash: string): boolean {
-		// scrypt hashes don't carry a self-describing, portable param header we can
-		// reliably introspect here, so we conservatively never force a re-hash.
 		return false;
 	}
 }
@@ -190,9 +281,64 @@ const driverFactories: Record<
 	scrypt: (config) => new ScryptDriver(config),
 };
 
-export class Hash {
+/**
+ * Per-driver facade — the AdonisJS `Hash` equivalent. Wraps a single
+ * `HashDriver` and adds the japa-style `assertEquals`/`assertNotEquals`
+ * helpers. Returned by `Hash.use()`.
+ */
+export class Hasher implements HashDriver {
+	#driver: HashDriver;
+	constructor(driver: HashDriver) {
+		this.#driver = driver;
+	}
+
+	isValidHash(value: string): boolean {
+		return this.#driver.isValidHash(value);
+	}
+	make(value: string): Promise<string> {
+		return this.#driver.make(value);
+	}
+	verify(hash: string, value: string): Promise<boolean> {
+		return this.#driver.verify(hash, value);
+	}
+	needsReHash(hash: string): boolean {
+		return this.#driver.needsReHash(hash);
+	}
+
+	/** Assert `value` passes verification against `hash`; throws otherwise. */
+	async assertEquals(hash: string, value: string): Promise<void> {
+		const ok = await this.#driver.verify(hash, value);
+		if (!ok) {
+			throw new AssertionError({
+				message: `Expected "${value}" to pass hash verification`,
+				expected: true,
+				actual: false,
+				operator: "strictEqual",
+				stackStartFn: this.assertEquals,
+			});
+		}
+	}
+
+	/** Assert `value` fails verification against `hash`; throws otherwise. */
+	async assertNotEquals(hash: string, value: string): Promise<void> {
+		const ok = await this.#driver.verify(hash, value);
+		if (ok) {
+			throw new AssertionError({
+				message: `Expected "${value}" to fail hash verification`,
+				expected: false,
+				actual: true,
+				operator: "strictEqual",
+				stackStartFn: this.assertNotEquals,
+			});
+		}
+	}
+}
+
+export class Hash implements HashDriver {
 	#drivers: Map<string, HashDriver> = new Map();
+	#hashers: Map<string, Hasher> = new Map();
 	#defaultDriver: string;
+	#fakeHasher: Hasher | undefined;
 
 	constructor(config: HashConfig) {
 		this.#defaultDriver = config.default;
@@ -209,15 +355,52 @@ export class Hash {
 		return this.use().verify(hash, value);
 	}
 
+	/** Format check for the default driver (AdonisJS `isValidHash`). */
+	isValidHash(hash: string): boolean {
+		return this.use().isValidHash(hash);
+	}
+
 	/** Whether `hash` should be re-hashed under the default driver's current params. */
 	needsReHash(hash: string): boolean {
 		return this.use().needsReHash(hash);
 	}
 
-	use(name?: string): HashDriver {
+	/** Assert `value` passes verification against `hash` under the default driver. */
+	assertEquals(hash: string, value: string): Promise<void> {
+		return this.use().assertEquals(hash, value);
+	}
+
+	/** Assert `value` fails verification against `hash` under the default driver. */
+	assertNotEquals(hash: string, value: string): Promise<void> {
+		return this.use().assertNotEquals(hash, value);
+	}
+
+	use(name?: string): Hasher {
+		// When faked, every hasher (named or default) resolves to the fake — the
+		// AdonisJS `fake()` semantics.
+		if (this.#fakeHasher) return this.#fakeHasher;
 		const n = name ?? this.#defaultDriver;
+		const cached = this.#hashers.get(n);
+		if (cached) return cached;
 		const driver = this.#drivers.get(n);
 		if (!driver) throw new Error(`Hash driver '${n}' not configured`);
-		return driver;
+		const hasher = new Hasher(driver);
+		this.#hashers.set(n, hasher);
+		return hasher;
+	}
+
+	/**
+	 * Swap every driver for the no-op fake driver (tests). Returns a disposable
+	 * so `using guard = hash.fake()` auto-restores at scope exit (AdonisJS
+	 * `fake()`); call `restore()` manually otherwise.
+	 */
+	fake(): { [Symbol.dispose](): void } {
+		if (!this.#fakeHasher) this.#fakeHasher = new Hasher(new FakeDriver());
+		return { [Symbol.dispose]: () => this.restore() };
+	}
+
+	/** Disable fake mode, restoring the real drivers. */
+	restore(): void {
+		this.#fakeHasher = undefined;
 	}
 }

@@ -8,9 +8,9 @@ Multi-driver password hashing service backed by Rust NAPI. Built on the same mod
 
 | Driver key | Algorithm | When to use |
 |---|---|---|
-| `argon2` *(default)* | argon2id | New applications. Memory-hard, side-channel resistant, OWASP-recommended for password storage. The Rust binding uses `Argon2::default()` from the `argon2` crate, which selects the **argon2id** variant. Tunable parameters land in a future story; today the recommended Rust defaults are used. |
-| `bcrypt` | bcrypt | Interoperating with legacy systems (Rails, PHP, Java) that already store bcrypt hashes. `rounds` is configurable (default 12, OWASP minimum 10). |
-| `scrypt` | scrypt | Memory-hardness with a different parameter space than argon2. Useful when migrating from Node's stdlib `crypto.scrypt`. `keyLength` and `saltLength` are configurable; the cost parameters use `scrypt::Params::recommended()` from the Rust `scrypt` crate. |
+| `argon2` *(default)* | argon2id | New applications. Memory-hard, side-channel resistant, OWASP-recommended for password storage. Pinned to the **argon2id** variant (V0x13). Tunable via config: `memory` (KiB, alias `memoryKib`), `iterations`, `parallelism`, and `secret` (a "pepper" not encoded in the hash — verification requires the same secret). |
+| `bcrypt` | bcrypt | Interoperating with legacy systems (Rails, PHP, Java) that already store bcrypt hashes. `rounds` is configurable (default 12, OWASP minimum 10). Emits the standard `$2b$` MCF string, which `@adonisjs/hash` also accepts on verify. |
+| `scrypt` | scrypt | Memory-hardness with a different parameter space than argon2. Work factor configurable via config: `cost` (N, default 16384), `blockSize` (r, default 8), `parallelization` (p, default 1), plus `keyLength`, `saltSize`, and a `maxMemory` guard. Emits the `@adonisjs/hash`-compatible PHC form `$scrypt$n=…,r=…,p=…$<b64 salt>$<b64 hash>`, so scrypt hashes cross-verify with AdonisJS. |
 
 All drivers run through the dedicated `sigil-engine` Rust crate (the native half of `@c9up/sigil`) — no JavaScript or TypeScript fallback. This is intentional: password hashing must hit a vetted, constant-time native implementation.
 

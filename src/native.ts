@@ -7,15 +7,25 @@ export interface Argon2NativeOptions {
 	memoryKib?: number;
 	iterations?: number;
 	parallelism?: number;
+	/** Secret pepper — not stored in the hash; required identically at verify. */
+	secret?: Buffer;
+}
+
+export interface ScryptNativeOptions {
+	cost?: number;
+	blockSize?: number;
+	parallelization?: number;
+	keyLength?: number;
+	saltLength?: number;
 }
 
 interface NativeSigil {
 	argon2Hash(password: string, options?: Argon2NativeOptions): string;
-	argon2Verify(password: string, hash: string): boolean;
+	argon2Verify(password: string, hash: string, secret?: Buffer): boolean;
 	bcryptHash(password: string, rounds?: number): string;
 	bcryptVerify(password: string, hash: string): boolean;
-	scryptHash(password: string, saltLen?: number, keyLen?: number): string;
-	scryptVerify(password: string, hash: string, keyLen?: number): boolean;
+	scryptHash(password: string, options?: ScryptNativeOptions): string;
+	scryptVerify(password: string, hash: string): boolean;
 }
 
 let native: NativeSigil | null = null;
@@ -57,8 +67,12 @@ export function argon2Hash(
 	return native?.argon2Hash(password, options) ?? null;
 }
 
-export function argon2Verify(password: string, hash: string): boolean | null {
-	return native?.argon2Verify(password, hash) ?? null;
+export function argon2Verify(
+	password: string,
+	hash: string,
+	secret?: Buffer,
+): boolean | null {
+	return native?.argon2Verify(password, hash, secret) ?? null;
 }
 
 export function bcryptHash(password: string, rounds?: number): string | null {
@@ -71,16 +85,11 @@ export function bcryptVerify(password: string, hash: string): boolean | null {
 
 export function scryptHash(
 	password: string,
-	saltLen?: number,
-	keyLen?: number,
+	options?: ScryptNativeOptions,
 ): string | null {
-	return native?.scryptHash(password, saltLen, keyLen) ?? null;
+	return native?.scryptHash(password, options) ?? null;
 }
 
-export function scryptVerify(
-	password: string,
-	hash: string,
-	keyLen?: number,
-): boolean | null {
-	return native?.scryptVerify(password, hash, keyLen) ?? null;
+export function scryptVerify(password: string, hash: string): boolean | null {
+	return native?.scryptVerify(password, hash) ?? null;
 }
