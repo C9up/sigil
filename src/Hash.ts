@@ -310,7 +310,9 @@ export class Hasher implements HashDriver {
 		const ok = await this.#driver.verify(hash, value);
 		if (!ok) {
 			throw new AssertionError({
-				message: `Expected "${value}" to pass hash verification`,
+				// Never interpolate `value` — it is the plaintext secret; a leaked
+				// AssertionError easily lands in CI / app logs.
+				message: "Expected the value to pass hash verification",
 				expected: true,
 				actual: false,
 				operator: "strictEqual",
@@ -324,7 +326,8 @@ export class Hasher implements HashDriver {
 		const ok = await this.#driver.verify(hash, value);
 		if (ok) {
 			throw new AssertionError({
-				message: `Expected "${value}" to fail hash verification`,
+				// Never interpolate `value` — it is the plaintext secret.
+				message: "Expected the value to fail hash verification",
 				expected: false,
 				actual: true,
 				operator: "strictEqual",

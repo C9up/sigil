@@ -44,7 +44,8 @@ const hash = new Hash({
 })
 
 const hashed = await hash.make('correct horse battery staple')
-const ok = await hash.verify('correct horse battery staple', hashed)
+// verify(hash, value) — hash FIRST, then the plaintext (AdonisJS arg order).
+const ok = await hash.verify(hashed, 'correct horse battery staple')
 // ok === true
 ```
 
@@ -52,7 +53,7 @@ In a Ream application, register `SigilProvider` and resolve `Hash` from the cont
 
 ```ts
 // providers.ts
-import { SigilProvider } from '@c9up/sigil/provider'
+import SigilProvider from '@c9up/sigil/provider' // default export
 export default [SigilProvider]
 ```
 
@@ -98,9 +99,9 @@ export default defineConfig({
 
 Honored config keys (anything else is silently ignored today):
 
-- `argon2` — *no per-driver options*; the Rust binding uses `Argon2::default()`. Tunable cost (`memory`, `iterations`, parallelism) is a future story.
+- `argon2` — `memory` (KiB), `iterations`, `parallelism`, and `secret` (keyed hashing; a UTF-8 string). Omitted keys fall back to the Rust binding's defaults.
 - `bcrypt` — `rounds: number` (default 12, minimum 10).
-- `scrypt` — `keyLength: number` (default 64), `saltLength: number` (default 32). Cost parameters fixed at `scrypt::Params::recommended()`.
+- `scrypt` — `cost` (N, default 16384), `blockSize` (r, default 8), `parallelization` (p, default 1), `keyLength` (default 64), `saltLength` (default 32), `maxMemory`.
 
 When `SigilProvider` boots without a `config/hash.ts`, the fallback is `argon2` with the recommended defaults — see Story 40.1's `SigilProvider` fix.
 
@@ -124,7 +125,7 @@ Epic 40 declares Sigil the canonical password-hashing package for Ream:
 - const ok = await argon2Verify(password, hashed)
 + const hash = new Hash({ default: 'argon2', drivers: { argon2: { driver: 'argon2' } } })
 + const hashed = await hash.make(password)
-+ const ok = await hash.verify(password, hashed)
++ const ok = await hash.verify(hashed, password) // verify(hash, value)
 ```
 
 In a Ream application, prefer the container-resolved `Hash` (see Quick start) over constructing one inline.
@@ -137,7 +138,7 @@ In a Ream application, prefer the container-resolved `Hash` (see Quick start) ov
 
 | Export | Type | Purpose |
 |---|---|---|
-| `Hash` | class | `new Hash(config)`. Instance methods: `make(value)`, `verify(value, hash)`, `use(name?)`. |
+| `Hash` | class | `new Hash(config)`. Instance methods: `make(value)`, `verify(hash, value)`, `use(name?)`. |
 | `HashDriver` | interface | Implement to plug a custom driver. Required: `make`, `verify`. Returned by `Hash.prototype.use(name)`. |
 | `HashConfig` | type | `{ default: string; drivers: Record<string, { driver: string; ...}> }`. |
 | `defineConfig` | helper | Type-safe config authoring. |

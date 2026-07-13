@@ -339,6 +339,21 @@ describe("sigil > Hash", () => {
 			});
 		});
 
+		it("assert error messages never leak the plaintext value (log-safety)", async () => {
+			const h = faked();
+			const secret = "s3cr3t-p4ssw0rd";
+			const eqErr: unknown = await h
+				.assertEquals("stored-hash", secret)
+				.catch((e: unknown) => e);
+			const neqErr: unknown = await h
+				.assertNotEquals(secret, secret)
+				.catch((e: unknown) => e);
+			for (const err of [eqErr, neqErr]) {
+				const msg = err instanceof Error ? err.message : String(err);
+				expect(msg).not.toContain(secret);
+			}
+		});
+
 		it("assertNotEquals resolves on a mismatch, throws AssertionError otherwise", async () => {
 			const h = faked();
 			await expect(
