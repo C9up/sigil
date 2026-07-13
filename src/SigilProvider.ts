@@ -9,7 +9,7 @@ import { setHash } from "./services/main.js";
  */
 interface SigilContainer {
 	singleton(token: unknown, factory: () => unknown): void;
-	resolve<T = unknown>(token: unknown): T;
+	resolve<T = unknown>(token: unknown): Promise<T>;
 }
 interface SigilConfigStore {
 	get<T = unknown>(key: string): T | undefined;
@@ -37,13 +37,13 @@ export default class SigilProvider {
 				},
 			);
 		});
-		this.app.container.singleton("hash", () => {
-			return this.app.container.resolve<Hash>(Hash);
+		this.app.container.singleton("hash", async () => {
+			return await this.app.container.resolve<Hash>(Hash);
 		});
 	}
 
 	async boot() {
-		setHash(this.app.container.resolve<Hash>(Hash));
+		setHash(await this.app.container.resolve<Hash>(Hash));
 	}
 
 	async shutdown() {}
