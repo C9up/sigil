@@ -51,9 +51,29 @@ export interface HashDriver {
 	needsReHash(hash: string): boolean;
 }
 
+/** One driver's settings — its name plus whatever that driver reads. */
+export interface HashDriverConfig {
+	driver: string;
+	[key: string]: unknown;
+}
+
+/**
+ * Hash configuration.
+ *
+ * `list` is the AdonisJS spelling, `drivers` is sigil's own. Both are accepted
+ * and mean the same thing, so a migrated `config/hash.ts` runs with its imports
+ * rewritten and nothing else — which is the whole point.
+ *
+ * Named deviation: AdonisJS puts a live factory closure under each name.
+ * Sigil's provider hydrates config from a SERIALIZABLE store, which cannot hold
+ * a closure, so a driver is described by a plain object. The `drivers.*`
+ * helpers produce exactly that, so the call site reads the same either way.
+ */
 export interface HashConfig {
 	default: string;
-	drivers: Record<string, { driver: string; [key: string]: unknown }>;
+	drivers?: Record<string, HashDriverConfig>;
+	/** AdonisJS spelling of `drivers`. */
+	list?: Record<string, HashDriverConfig>;
 }
 
 const MAX_PASSWORD_BYTES = 1024;
@@ -345,11 +365,18 @@ export class Hash implements HashDriver {
 
 	constructor(config: HashConfig) {
 		this.#defaultDriver = config.default;
-		for (const [name, driverConfig] of Object.entries(config.drivers)) {
+		this.config = config;
+		// `list` (AdonisJS) and `drivers` (sigil) are the same map under two
+		// names; a config that sets both gets both, last name wins per key.
+		const declared = { ...config.drivers, ...config.list };
+		for (const [name, driverConfig] of Object.entries(declared)) {
 			const factory = driverFactories[driverConfig.driver];
 			if (factory) this.#drivers.set(name, factory(driverConfig));
 		}
 	}
+
+	/** The configuration this manager was built from (AdonisJS `HashManager.config`). */
+	readonly config: HashConfig;
 
 	async make(value: string): Promise<string> {
 		return this.use().make(value);
