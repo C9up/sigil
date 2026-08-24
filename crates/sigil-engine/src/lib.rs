@@ -23,11 +23,39 @@ pub struct Argon2Options {
     pub parallelism: Option<u32>,
     /// Secret pepper. Not stored in the hash; required identically at verify.
     pub secret: Option<Vec<u8>>,
+    /// Argon2 variant: "d", "i", or "id" (Adonis `variant`). Default "id".
+    pub variant: Option<String>,
+    /// Output length in bytes (Adonis `hashLength`). Default 32.
+    pub hash_length: Option<usize>,
+    /// Salt size in bytes (Adonis `saltSize`). Default 16.
+    pub salt_length: Option<usize>,
+}
+
+/// Minimum salt accepted by the Argon2 spec; below it the hash is weakened.
+const MIN_SALT_BYTES: usize = 8;
+/// The PHC salt field caps at 64 encoded bytes, so raw salt is bounded too.
+const MAX_SALT_BYTES: usize = 48;
+
+/// Map the Adonis variant name onto the algorithm. An unknown name is an error
+/// rather than a silent fall back to Argon2id: an app asking for argon2i and
+/// getting argon2id would never find out.
+fn resolve_variant(variant: Option<&str>) -> Result<Algorithm, String> {
+    match variant {
+        None | Some("id") => Ok(Algorithm::Argon2id),
+        Some("i") => Ok(Algorithm::Argon2i),
+        Some("d") => Ok(Algorithm::Argon2d),
+        Some(other) => Err(format!(
+            "Unknown Argon2 variant \"{}\" — expected \"d\", \"i\", or \"id\".",
+            other
+        )),
+    }
 }
 
 fn build_params(opts: &Argon2Options) -> Result<Params, String> {
-    let any_set =
-        opts.memory_kib.is_some() || opts.iterations.is_some() || opts.parallelism.is_some();
+    let any_set = opts.memory_kib.is_some()
+        || opts.iterations.is_some()
+        || opts.parallelism.is_some()
+        || opts.hash_length.is_some();
     if !any_set {
         return Ok(Params::DEFAULT);
     }
@@ -36,21 +64,36 @@ fn build_params(opts: &Argon2Options) -> Result<Params, String> {
         opts.memory_kib.unwrap_or(default.m_cost()),
         opts.iterations.unwrap_or(default.t_cost()),
         opts.parallelism.unwrap_or(default.p_cost()),
-        None,
+        opts.hash_length,
     )
     .map_err(|e| format!("Argon2 params error: {}", e))
+}
+
+/// A salt of the requested size, or the crate default when none is asked for.
+fn build_salt(salt_length: Option<usize>) -> Result<SaltString, String> {
+    let Some(len) = salt_length else {
+        return Ok(SaltString::generate(&mut PwOsRng));
+    };
+    if !(MIN_SALT_BYTES..=MAX_SALT_BYTES).contains(&len) {
+        return Err(format!(
+            "Argon2 saltSize must be between {} and {} bytes, got {}.",
+            MIN_SALT_BYTES, MAX_SALT_BYTES, len
+        ));
+    }
+    let mut bytes = vec![0u8; len];
+    getrandom::getrandom(&mut bytes).map_err(|e| format!("Argon2 salt error: {}", e))?;
+    SaltString::encode_b64(&bytes).map_err(|e| format!("Argon2 salt error: {}", e))
 }
 
 /// Build an Argon2 hasher for `make`. Borrows `opts.secret` when present, so the
 /// returned instance is tied to `opts`' lifetime.
 fn build_argon2(opts: &Argon2Options) -> Result<Argon2<'_>, String> {
     let params = build_params(opts)?;
+    let algorithm = resolve_variant(opts.variant.as_deref())?;
     match opts.secret.as_deref() {
-        Some(secret) => {
-            Argon2::new_with_secret(secret, Algorithm::Argon2id, Version::V0x13, params)
-                .map_err(|e| format!("Argon2 secret error: {}", e))
-        }
-        None => Ok(Argon2::new(Algorithm::Argon2id, Version::V0x13, params)),
+        Some(secret) => Argon2::new_with_secret(secret, algorithm, Version::V0x13, params)
+            .map_err(|e| format!("Argon2 secret error: {}", e)),
+        None => Ok(Argon2::new(algorithm, Version::V0x13, params)),
     }
 }
 
@@ -59,7 +102,7 @@ pub fn argon2_hash(password: &str, opts: Argon2Options) -> Result<String, String
         return Err(format!("Password exceeds maximum length of {} bytes", MAX_PASSWORD_BYTES));
     }
     let argon2 = build_argon2(&opts)?;
-    let salt = SaltString::generate(&mut PwOsRng);
+    let salt = build_salt(opts.salt_length)?;
     argon2
         .hash_password(password.as_bytes(), &salt)
         .map(|h| h.to_string())
@@ -75,24 +118,53 @@ pub fn argon2_verify(password: &str, hash: &str, secret: Option<&[u8]>) -> bool 
     // only the secret has to be supplied by the caller. Build the instance with
     // that secret (or none) and DEFAULT params — the params are overridden by
     // the values carried in the hash.
+    // The ALGORITHM comes from the hash string too — a hash made with argon2i
+    // must not be verified as argon2id, which would simply never match.
+    let algorithm = match parsed.algorithm.as_str() {
+        "argon2i" => Algorithm::Argon2i,
+        "argon2d" => Algorithm::Argon2d,
+        "argon2id" => Algorithm::Argon2id,
+        _ => return false,
+    };
     let argon2 = match secret {
         Some(secret) => {
-            match Argon2::new_with_secret(
-                secret,
-                Algorithm::Argon2id,
-                Version::V0x13,
-                Params::DEFAULT,
-            ) {
+            match Argon2::new_with_secret(secret, algorithm, Version::V0x13, Params::DEFAULT) {
                 Ok(a) => a,
                 Err(_) => return false,
             }
         }
-        None => Argon2::default(),
+        None => Argon2::new(algorithm, Version::V0x13, Params::DEFAULT),
     };
     argon2.verify_password(password.as_bytes(), &parsed).is_ok()
 }
 
-pub fn bcrypt_hash(password: &str, rounds: u32) -> Result<String, String> {
+/// Bcrypt's salt is exactly 128 bits, by the algorithm. `saltSize` exists in
+/// the Adonis config, so it is VALIDATED rather than ignored: any other value
+/// would produce a hash no bcrypt implementation can read.
+pub const BCRYPT_SALT_BYTES: usize = 16;
+
+/// The `$2?$` prefix. Adonis spells it as a char code (97 = `a`, 98 = `b`),
+/// so the same config value maps here.
+fn resolve_bcrypt_version(version: Option<u32>) -> Result<bcrypt::Version, String> {
+    match version {
+        None => Ok(bcrypt::Version::TwoB),
+        Some(97) => Ok(bcrypt::Version::TwoA),
+        Some(98) => Ok(bcrypt::Version::TwoB),
+        Some(120) => Ok(bcrypt::Version::TwoX),
+        Some(121) => Ok(bcrypt::Version::TwoY),
+        Some(other) => Err(format!(
+            "Unknown bcrypt version {} — expected 97 (2a), 98 (2b), 120 (2x) or 121 (2y).",
+            other
+        )),
+    }
+}
+
+pub fn bcrypt_hash(
+    password: &str,
+    rounds: u32,
+    version: Option<u32>,
+    salt_length: Option<usize>,
+) -> Result<String, String> {
     if password.len() > BCRYPT_MAX_BYTES {
         return Err(format!("Password exceeds bcrypt maximum of {} bytes", BCRYPT_MAX_BYTES));
     }
@@ -102,7 +174,20 @@ pub fn bcrypt_hash(password: &str, rounds: u32) -> Result<String, String> {
             rounds, BCRYPT_MIN_COST
         ));
     }
-    bcrypt::hash(password, rounds).map_err(|e| format!("Bcrypt hash error: {}", e))
+    if let Some(len) = salt_length {
+        if len != BCRYPT_SALT_BYTES {
+            return Err(format!(
+                "Bcrypt saltSize must be {} bytes — the algorithm fixes it, and {} would produce an unreadable hash.",
+                BCRYPT_SALT_BYTES, len
+            ));
+        }
+    }
+    let version = resolve_bcrypt_version(version)?;
+    let mut salt = [0u8; BCRYPT_SALT_BYTES];
+    getrandom::getrandom(&mut salt).map_err(|e| format!("Bcrypt salt error: {}", e))?;
+    bcrypt::hash_with_salt(password, rounds, salt)
+        .map(|parts| parts.format_for_version(version))
+        .map_err(|e| format!("Bcrypt hash error: {}", e))
 }
 
 pub fn bcrypt_verify(password: &str, hash: &str) -> Result<bool, String> {
@@ -266,6 +351,7 @@ mod tests {
             iterations: Some(3),
             parallelism: Some(2),
             secret: None,
+            ..Default::default()
         };
         let hash = argon2_hash("password", opts).unwrap();
         assert!(hash.contains("m=32768"));
@@ -281,6 +367,7 @@ mod tests {
             iterations: None,
             parallelism: None,
             secret: None,
+            ..Default::default()
         };
         assert!(argon2_hash("password", bad).is_err());
     }
@@ -309,7 +396,7 @@ mod tests {
 
     #[test]
     fn bcrypt_round_trip() {
-        let hash = bcrypt_hash("hunter2", 10).unwrap();
+        let hash = bcrypt_hash("hunter2", 10, None, None).unwrap();
         assert!(hash.starts_with("$2b$"));
         assert!(bcrypt_verify("hunter2", &hash).unwrap());
         assert!(!bcrypt_verify("wrong", &hash).unwrap());
@@ -317,13 +404,13 @@ mod tests {
 
     #[test]
     fn bcrypt_rejects_low_cost() {
-        assert!(bcrypt_hash("password", 4).is_err());
+        assert!(bcrypt_hash("password", 4, None, None).is_err());
     }
 
     #[test]
     fn bcrypt_rejects_oversized_password() {
         let long = "A".repeat(73);
-        assert!(bcrypt_hash(&long, 10).is_err());
+        assert!(bcrypt_hash(&long, 10, None, None).is_err());
         assert!(bcrypt_verify(&long, "$2b$10$fake").is_err());
     }
 
@@ -407,5 +494,76 @@ mod tests {
         assert!(!scrypt_verify("password", "deadbeef:cafebabe"));
         assert!(!scrypt_verify("password", "not-a-hash"));
         assert!(!scrypt_verify("password", "scrypt$ln=14$r=8$p=1$aa$bb"));
+    }
+
+    #[test]
+    fn argon2_honours_the_requested_variant() {
+        // The bug this covers: an app asking for argon2i silently got argon2id.
+        for (variant, prefix) in [("i", "$argon2i$"), ("d", "$argon2d$"), ("id", "$argon2id$")] {
+            let opts = Argon2Options {
+                variant: Some(variant.to_string()),
+                ..Default::default()
+            };
+            let hash = argon2_hash("hunter2", opts).unwrap();
+            assert!(hash.starts_with(prefix), "{} produced {}", variant, hash);
+            // And it verifies — the algorithm is read back from the hash.
+            assert!(argon2_verify("hunter2", &hash, None));
+            assert!(!argon2_verify("wrong", &hash, None));
+        }
+    }
+
+    #[test]
+    fn argon2_rejects_an_unknown_variant() {
+        let opts = Argon2Options { variant: Some("z".into()), ..Default::default() };
+        assert!(argon2_hash("hunter2", opts).is_err());
+    }
+
+    #[test]
+    fn argon2_honours_the_requested_output_length() {
+        let opts = Argon2Options { hash_length: Some(64), ..Default::default() };
+        let hash = argon2_hash("hunter2", opts).unwrap();
+        let encoded = hash.rsplit('$').next().unwrap();
+        // 64 raw bytes is 86 base64 characters without padding.
+        assert_eq!(encoded.len(), 86, "{}", hash);
+        assert!(argon2_verify("hunter2", &hash, None));
+    }
+
+    #[test]
+    fn argon2_honours_the_requested_salt_size() {
+        let opts = Argon2Options { salt_length: Some(32), ..Default::default() };
+        let hash = argon2_hash("hunter2", opts).unwrap();
+        let salt = hash.split('$').nth(4).unwrap();
+        // 32 raw bytes is 43 base64 characters without padding.
+        assert_eq!(salt.len(), 43, "{}", hash);
+        assert!(argon2_verify("hunter2", &hash, None));
+    }
+
+    #[test]
+    fn argon2_rejects_a_salt_outside_the_safe_range() {
+        for len in [4usize, 64] {
+            let opts = Argon2Options { salt_length: Some(len), ..Default::default() };
+            assert!(argon2_hash("hunter2", opts).is_err(), "len {}", len);
+        }
+    }
+
+    #[test]
+    fn bcrypt_honours_the_requested_version() {
+        for (version, prefix) in [(97u32, "$2a$"), (98, "$2b$"), (121, "$2y$")] {
+            let hash = bcrypt_hash("hunter2", 10, Some(version), None).unwrap();
+            assert!(hash.starts_with(prefix), "{} produced {}", version, hash);
+            assert!(bcrypt_verify("hunter2", &hash).unwrap());
+        }
+    }
+
+    #[test]
+    fn bcrypt_rejects_a_salt_size_the_algorithm_cannot_produce() {
+        // Better than accepting it and emitting a hash nothing can read.
+        assert!(bcrypt_hash("hunter2", 10, None, Some(32)).is_err());
+        assert!(bcrypt_hash("hunter2", 10, None, Some(16)).is_ok());
+    }
+
+    #[test]
+    fn bcrypt_rejects_an_unknown_version() {
+        assert!(bcrypt_hash("hunter2", 10, Some(42), None).is_err());
     }
 }

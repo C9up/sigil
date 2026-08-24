@@ -127,6 +127,28 @@ class Argon2Driver implements HashDriver {
 			this.#secret = Buffer.from(config.secret, "utf8");
 			opts.secret = this.#secret;
 		}
+		// `variant`, `hashLength` and `saltSize` were declared on Argon2Options
+		// and never read: an app asking for argon2i silently got argon2id, and
+		// the two lengths silently stayed at the defaults.
+		if (config.variant !== undefined) {
+			// Dropping an unrecognised value would be the very bug this fixes:
+			// the caller would get argon2id and never learn its config was
+			// ignored.
+			if (
+				config.variant !== "d" &&
+				config.variant !== "i" &&
+				config.variant !== "id"
+			) {
+				throw new Error(
+					`Unknown Argon2 variant "${String(config.variant)}" — expected "d", "i", or "id".`,
+				);
+			}
+			opts.variant = config.variant;
+		}
+		if (typeof config.hashLength === "number")
+			opts.hashLength = config.hashLength;
+		// AdonisJS names it `saltSize`; the native layer calls it saltLength.
+		if (typeof config.saltSize === "number") opts.saltLength = config.saltSize;
 		this.#options = Object.keys(opts).length > 0 ? opts : undefined;
 	}
 
@@ -166,8 +188,16 @@ class Argon2Driver implements HashDriver {
 
 class BcryptDriver implements HashDriver {
 	#rounds: number;
+	#version: number | undefined;
+	#saltSize: number | undefined;
 	constructor(config: Record<string, unknown> = {}) {
 		this.#rounds = typeof config.rounds === "number" ? config.rounds : 12;
+		// `version` and `saltSize` were declared on BcryptOptions and never read.
+		// AdonisJS spells the version as a char code (97 = "2a", 98 = "2b").
+		this.#version =
+			typeof config.version === "number" ? config.version : undefined;
+		this.#saltSize =
+			typeof config.saltSize === "number" ? config.saltSize : undefined;
 	}
 
 	isValidHash(hash: string): boolean {
@@ -187,7 +217,10 @@ class BcryptDriver implements HashDriver {
 			);
 		}
 		await ensureNative();
-		return requireNative(bcryptHash(value, this.#rounds), "bcrypt");
+		return requireNative(
+			bcryptHash(value, this.#rounds, this.#version, this.#saltSize),
+			"bcrypt",
+		);
 	}
 
 	async verify(hash: string, value: string): Promise<boolean> {

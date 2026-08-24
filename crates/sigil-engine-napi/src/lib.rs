@@ -24,6 +24,12 @@ pub struct Argon2Options {
     pub parallelism: Option<u32>,
     /// Secret pepper. Not stored in the hash; required identically at verify.
     pub secret: Option<Buffer>,
+    /// Variant: "d", "i" or "id" (Adonis `variant`). Default "id".
+    pub variant: Option<String>,
+    /// Output length in bytes (Adonis `hashLength`). Default 32.
+    pub hash_length: Option<u32>,
+    /// Salt size in bytes (Adonis `saltSize`). Default 16.
+    pub salt_length: Option<u32>,
 }
 
 #[napi(object)]
@@ -50,6 +56,9 @@ pub fn argon2_hash(password: String, options: Option<Argon2Options>) -> Result<S
             iterations: o.iterations,
             parallelism: o.parallelism,
             secret: o.secret.map(|b| b.to_vec()),
+            variant: o.variant,
+            hash_length: o.hash_length.map(|v| v as usize),
+            salt_length: o.salt_length.map(|v| v as usize),
         })
         .unwrap_or_default();
     wrap(move || sigil_engine::argon2_hash(&password, opts))
@@ -66,8 +75,20 @@ pub fn argon2_verify(password: String, hash: String, secret: Option<Buffer>) -> 
 }
 
 #[napi]
-pub fn bcrypt_hash(password: String, rounds: Option<u32>) -> Result<String> {
-    wrap(|| sigil_engine::bcrypt_hash(&password, rounds.unwrap_or(12)))
+pub fn bcrypt_hash(
+    password: String,
+    rounds: Option<u32>,
+    version: Option<u32>,
+    salt_length: Option<u32>,
+) -> Result<String> {
+    wrap(move || {
+        sigil_engine::bcrypt_hash(
+            &password,
+            rounds.unwrap_or(12),
+            version,
+            salt_length.map(|v| v as usize),
+        )
+    })
 }
 
 #[napi]

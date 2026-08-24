@@ -9,6 +9,12 @@ export interface Argon2NativeOptions {
 	parallelism?: number;
 	/** Secret pepper — not stored in the hash; required identically at verify. */
 	secret?: Buffer;
+	/** Variant: "d", "i" or "id". Default "id". */
+	variant?: "d" | "i" | "id";
+	/** Output length in bytes. Default 32. */
+	hashLength?: number;
+	/** Salt size in bytes. Default 16. */
+	saltLength?: number;
 }
 
 export interface ScryptNativeOptions {
@@ -22,7 +28,12 @@ export interface ScryptNativeOptions {
 interface NativeSigil {
 	argon2Hash(password: string, options?: Argon2NativeOptions): string;
 	argon2Verify(password: string, hash: string, secret?: Buffer): boolean;
-	bcryptHash(password: string, rounds?: number): string;
+	bcryptHash(
+		password: string,
+		rounds?: number,
+		version?: number,
+		saltLength?: number,
+	): string;
 	bcryptVerify(password: string, hash: string): boolean;
 	scryptHash(password: string, options?: ScryptNativeOptions): string;
 	scryptVerify(password: string, hash: string): boolean;
@@ -75,8 +86,13 @@ export function argon2Verify(
 	return native?.argon2Verify(password, hash, secret) ?? null;
 }
 
-export function bcryptHash(password: string, rounds?: number): string | null {
-	return native?.bcryptHash(password, rounds) ?? null;
+export function bcryptHash(
+	password: string,
+	rounds?: number,
+	version?: number,
+	saltLength?: number,
+): string | null {
+	return native?.bcryptHash(password, rounds, version, saltLength) ?? null;
 }
 
 export function bcryptVerify(password: string, hash: string): boolean | null {
