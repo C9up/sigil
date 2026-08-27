@@ -1,6 +1,6 @@
 {
   "name": "@c9up/sigil",
-  "version": "0.1.10",
+  "version": "0.1.11",
   "description": "Multi-driver password hashing — argon2, bcrypt, scrypt",
   "type": "module",
   "main": "./src/index.ts",
@@ -43,7 +43,7 @@
     "vitest": "^4.1.2"
   },
   "peerDependencies": {
-    "@c9up/ream": "^0.1.0"
+    "@c9up/ream": "^0.2.0"
   },
   "peerDependenciesMeta": {
     "@c9up/ream": {
