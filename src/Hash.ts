@@ -336,7 +336,7 @@ const driverFactories: Record<
 
 /**
  * Per-driver facade — the AdonisJS `Hash` equivalent. Wraps a single
- * `HashDriver` and adds the japa-style `assertEquals`/`assertNotEquals`
+ * `HashDriver` and adds the helix-style `assertEquals`/`assertNotEquals`
  * helpers. Returned by `Hash.use()`.
  */
 export class Hasher implements HashDriver {
