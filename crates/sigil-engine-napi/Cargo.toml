@@ -8,7 +8,7 @@ crate-type = ["cdylib"]
 
 [dependencies]
 napi = { version = "2", features = ["napi4"] }
-napi-derive = "2"
+napi-derive = { version = "2", features = ["type-def"] }
 sigil-engine = { path = "../sigil-engine" }
 
 [build-dependencies]

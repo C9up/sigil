@@ -1,6 +1,6 @@
 {
   "name": "@c9up/sigil",
-  "version": "0.1.11",
+  "version": "0.1.12",
   "description": "Multi-driver password hashing — argon2, bcrypt, scrypt",
   "type": "module",
   "main": "./src/index.ts",
@@ -29,7 +29,8 @@
   },
   "scripts": {
     "build": "tsc -p tsconfig.build.json",
-    "build:napi": "cargo build --release -p sigil-engine-napi && node scripts/copy-napi.mjs",
+    "build:napi": "cargo build --release -p sigil-engine-napi && pnpm build:napi-types && node scripts/copy-napi.mjs",
+    "build:napi-types": "node scripts/build-napi-types.mjs",
     "test": "vitest run",
     "lint": "biome check src/",
     "test:coverage": "vitest run --coverage",

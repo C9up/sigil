@@ -25,19 +25,19 @@ export interface ScryptNativeOptions {
 	saltLength?: number;
 }
 
-interface NativeSigil {
-	argon2Hash(password: string, options?: Argon2NativeOptions): string;
-	argon2Verify(password: string, hash: string, secret?: Buffer): boolean;
-	bcryptHash(
-		password: string,
-		rounds?: number,
-		version?: number,
-		saltLength?: number,
-	): string;
-	bcryptVerify(password: string, hash: string): boolean;
-	scryptHash(password: string, options?: ScryptNativeOptions): string;
-	scryptVerify(password: string, hash: string): boolean;
-}
+/**
+ * The engine's surface, as the Rust declares it.
+ *
+ * Derived from `./native/generated.js` — written by `pnpm build:napi-types`
+ * from napi-derive's own `type-def` output — rather than restated here, where
+ * nothing would notice a `pub fn` gaining a parameter or changing its return.
+ *
+ * The option types above stay hand-written on purpose: they narrow what the
+ * Rust types loosely (`variant` is a `String` there, three literals here). The
+ * calls below still have to satisfy the generated signatures, so a field the
+ * engine drops or renames stops compiling instead of failing at runtime.
+ */
+type NativeSigil = typeof import("./native/generated.js");
 
 let native: NativeSigil | null = null;
 let attempted = false;
