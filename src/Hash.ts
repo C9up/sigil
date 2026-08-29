@@ -13,10 +13,11 @@
  * exposes the per-driver facade as `Hasher` — Adonis's `Hash`. `use()` returns
  * a `Hasher`, so `isValidHash`/`assertEquals`/… are available off both.
  *
- * Config shape: Adonis embeds live factory closures in `config.list`. Sigil's
- * provider hydrates config from a serializable store, so the config is
- * `{ default, drivers: { <name>: { driver, ...options } } }` — a deliberate,
- * serializable divergence, not the `list` factory form.
+ * Config shape: `{ default, list: { <name>: { driver, ...options } } }`. The
+ * key is `list`, as it is upstream; what differs is the VALUE — upstream puts a
+ * live factory closure under each name, and sigil's provider hydrates its
+ * config from a serializable store, which cannot hold one. The `drivers.*`
+ * helpers produce that plain object, so the call site reads the same.
  */
 
 import { AssertionError } from "node:assert";
@@ -60,7 +61,7 @@ export interface HashDriverConfig {
 /**
  * Hash configuration.
  *
- * `list` is the AdonisJS spelling, `drivers` is sigil's own. Both are accepted
+ * `list` is the key; `drivers` is sigil's older spelling. Both are accepted
  * and mean the same thing, so a migrated `config/hash.ts` runs with its imports
  * rewritten and nothing else — which is the whole point.
  *
@@ -71,9 +72,10 @@ export interface HashDriverConfig {
  */
 export interface HashConfig {
 	default: string;
-	drivers?: Record<string, HashDriverConfig>;
-	/** AdonisJS spelling of `drivers`. */
+	/** The hashers this application can use, by name. */
 	list?: Record<string, HashDriverConfig>;
+	/** Sigil's older spelling of {@link list}. Both are accepted; `list` wins. */
+	drivers?: Record<string, HashDriverConfig>;
 }
 
 const MAX_PASSWORD_BYTES = 1024;

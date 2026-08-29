@@ -33,7 +33,7 @@ export default class SigilProvider {
 			return new Hash(
 				config ?? {
 					default: "argon2",
-					drivers: { argon2: { driver: "argon2" } },
+					list: { argon2: { driver: "argon2" } },
 				},
 			);
 		});

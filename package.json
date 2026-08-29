@@ -1,6 +1,6 @@
 {
   "name": "@c9up/sigil",
-  "version": "0.1.12",
+  "version": "0.1.13",
   "description": "Multi-driver password hashing — argon2, bcrypt, scrypt",
   "type": "module",
   "main": "./src/index.ts",

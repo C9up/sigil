@@ -38,7 +38,7 @@ import { Hash } from '@c9up/sigil'
 
 const hash = new Hash({
   default: 'argon2',
-  drivers: {
+  list: {
     argon2: { driver: 'argon2' },
   },
 })
@@ -89,7 +89,7 @@ import { defineConfig } from '@c9up/sigil'
 
 export default defineConfig({
   default: 'argon2',
-  drivers: {
+  list: {
     argon2: { driver: 'argon2' },
     bcrypt: { driver: 'bcrypt', rounds: 12 },
     scrypt: { driver: 'scrypt', keyLength: 64, saltLength: 32 },
@@ -123,7 +123,7 @@ Epic 40 declares Sigil the canonical password-hashing package for Ream:
 
 - const hashed = await argon2Hash(password)
 - const ok = await argon2Verify(password, hashed)
-+ const hash = new Hash({ default: 'argon2', drivers: { argon2: { driver: 'argon2' } } })
++ const hash = new Hash({ default: 'argon2', list: { argon2: { driver: 'argon2' } } })
 + const hashed = await hash.make(password)
 + const ok = await hash.verify(hashed, password) // verify(hash, value)
 ```
@@ -140,7 +140,7 @@ In a Ream application, prefer the container-resolved `Hash` (see Quick start) ov
 |---|---|---|
 | `Hash` | class | `new Hash(config)`. Instance methods: `make(value)`, `verify(hash, value)`, `use(name?)`. |
 | `HashDriver` | interface | Implement to plug a custom driver. Required: `make`, `verify`. Returned by `Hash.prototype.use(name)`. |
-| `HashConfig` | type | `{ default: string; drivers: Record<string, { driver: string; ...}> }`. |
+| `HashConfig` | type | `{ default: string; list: Record<string, { driver: string; ...}> }` (`drivers` is the older spelling of `list`). |
 | `defineConfig` | helper | Type-safe config authoring. |
 | `SigilProvider` | provider | Registers `Hash` (and the `'hash'` token) in the Ream container. Imported via `@c9up/sigil/provider`. |
 
