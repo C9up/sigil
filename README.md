@@ -4,6 +4,9 @@
 
 Multi-driver password hashing service backed by Rust NAPI. Built on the same model as `@adonisjs/hash` (v9): pluggable drivers, a single `Hash` class, fluent verification.
 
+`ream add @c9up/sigil` installs it, registers the provider and writes
+`config/hash.ts`. The rest of this page assumes that has run.
+
 ## Drivers
 
 | Driver key | Algorithm | When to use |
