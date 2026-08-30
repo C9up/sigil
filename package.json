@@ -1,7 +1,7 @@
 {
   "name": "@c9up/sigil",
   "version": "0.1.13",
-  "description": "Multi-driver password hashing — argon2, bcrypt, scrypt",
+  "description": "Multi-driver password hashing \u2014 argon2, bcrypt, scrypt",
   "type": "module",
   "main": "./src/index.ts",
   "types": "./src/index.ts",
@@ -21,6 +21,10 @@
     "./provider": {
       "types": "./src/SigilProvider.ts",
       "import": "./src/SigilProvider.ts"
+    },
+    "./configure": {
+      "types": "./src/configure.ts",
+      "import": "./src/configure.ts"
     },
     "./services/main": {
       "types": "./src/services/main.ts",
@@ -62,6 +66,10 @@
       "./provider": {
         "types": "./dist/SigilProvider.d.ts",
         "import": "./dist/SigilProvider.js"
+      },
+      "./configure": {
+        "types": "./dist/configure.d.ts",
+        "import": "./dist/configure.js"
       },
       "./services/main": {
         "types": "./dist/services/main.d.ts",
