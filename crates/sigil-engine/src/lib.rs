@@ -99,7 +99,10 @@ fn build_argon2(opts: &Argon2Options) -> Result<Argon2<'_>, String> {
 
 pub fn argon2_hash(password: &str, opts: Argon2Options) -> Result<String, String> {
     if password.len() > MAX_PASSWORD_BYTES {
-        return Err(format!("Password exceeds maximum length of {} bytes", MAX_PASSWORD_BYTES));
+        return Err(format!(
+            "Password exceeds maximum length of {} bytes",
+            MAX_PASSWORD_BYTES
+        ));
     }
     let argon2 = build_argon2(&opts)?;
     let salt = build_salt(opts.salt_length)?;
@@ -113,7 +116,9 @@ pub fn argon2_verify(password: &str, hash: &str, secret: Option<&[u8]>) -> bool 
     if password.len() > MAX_PASSWORD_BYTES {
         return false;
     }
-    let Ok(parsed) = PasswordHash::new(hash) else { return false };
+    let Ok(parsed) = PasswordHash::new(hash) else {
+        return false;
+    };
     // verify_password reads the m/t/p params + salt encoded in the hash string;
     // only the secret has to be supplied by the caller. Build the instance with
     // that secret (or none) and DEFAULT params — the params are overridden by
@@ -166,7 +171,10 @@ pub fn bcrypt_hash(
     salt_length: Option<usize>,
 ) -> Result<String, String> {
     if password.len() > BCRYPT_MAX_BYTES {
-        return Err(format!("Password exceeds bcrypt maximum of {} bytes", BCRYPT_MAX_BYTES));
+        return Err(format!(
+            "Password exceeds bcrypt maximum of {} bytes",
+            BCRYPT_MAX_BYTES
+        ));
     }
     if rounds < BCRYPT_MIN_COST {
         return Err(format!(
@@ -192,7 +200,10 @@ pub fn bcrypt_hash(
 
 pub fn bcrypt_verify(password: &str, hash: &str) -> Result<bool, String> {
     if password.len() > BCRYPT_MAX_BYTES {
-        return Err(format!("Password exceeds bcrypt maximum of {} bytes", BCRYPT_MAX_BYTES));
+        return Err(format!(
+            "Password exceeds bcrypt maximum of {} bytes",
+            BCRYPT_MAX_BYTES
+        ));
     }
     bcrypt::verify(password, hash).map_err(|e| format!("Bcrypt verify error: {}", e))
 }
@@ -216,7 +227,10 @@ pub struct ScryptOptions {
 
 pub fn scrypt_hash(password: &str, opts: ScryptOptions) -> Result<String, String> {
     if password.len() > MAX_PASSWORD_BYTES {
-        return Err(format!("Password exceeds maximum length of {} bytes", MAX_PASSWORD_BYTES));
+        return Err(format!(
+            "Password exceeds maximum length of {} bytes",
+            MAX_PASSWORD_BYTES
+        ));
     }
     let cost = opts.cost.unwrap_or(16384);
     let r = opts.block_size.unwrap_or(8);
@@ -230,8 +244,8 @@ pub fn scrypt_hash(password: &str, opts: ScryptOptions) -> Result<String, String
         ));
     }
     let log_n = cost.trailing_zeros() as u8;
-    let params =
-        scrypt::Params::new(log_n, r, p, key_len).map_err(|e| format!("Scrypt params error: {}", e))?;
+    let params = scrypt::Params::new(log_n, r, p, key_len)
+        .map_err(|e| format!("Scrypt params error: {}", e))?;
     let mut salt = vec![0u8; salt_len];
     getrandom::getrandom(&mut salt).map_err(|e| format!("RNG error: {}", e))?;
     let mut key = vec![0u8; key_len];
@@ -289,7 +303,9 @@ pub fn scrypt_verify(password: &str, hash: &str) -> bool {
     if password.len() > MAX_PASSWORD_BYTES {
         return false;
     }
-    let Some((cost, r, p, salt, stored_key)) = parse_scrypt_hash(hash) else { return false };
+    let Some((cost, r, p, salt, stored_key)) = parse_scrypt_hash(hash) else {
+        return false;
+    };
     // Derive the key length from the stored hash itself. Guard an empty key so a
     // crafted `…$salt$` hash (key_len 0) can't trivially match via an
     // empty-vs-empty comparison. Fail closed.
@@ -302,7 +318,9 @@ pub fn scrypt_verify(password: &str, hash: &str) -> bool {
     }
     let log_n = cost.trailing_zeros() as u8;
     // Re-derive with the params ENCODED IN THE HASH, not the current default.
-    let Ok(params) = scrypt::Params::new(log_n, r, p, key_len) else { return false };
+    let Ok(params) = scrypt::Params::new(log_n, r, p, key_len) else {
+        return false;
+    };
     let mut derived = vec![0u8; key_len];
     if scrypt::scrypt(password.as_bytes(), &salt, &params, &mut derived).is_err() {
         return false;
@@ -514,13 +532,19 @@ mod tests {
 
     #[test]
     fn argon2_rejects_an_unknown_variant() {
-        let opts = Argon2Options { variant: Some("z".into()), ..Default::default() };
+        let opts = Argon2Options {
+            variant: Some("z".into()),
+            ..Default::default()
+        };
         assert!(argon2_hash("hunter2", opts).is_err());
     }
 
     #[test]
     fn argon2_honours_the_requested_output_length() {
-        let opts = Argon2Options { hash_length: Some(64), ..Default::default() };
+        let opts = Argon2Options {
+            hash_length: Some(64),
+            ..Default::default()
+        };
         let hash = argon2_hash("hunter2", opts).unwrap();
         let encoded = hash.rsplit('$').next().unwrap();
         // 64 raw bytes is 86 base64 characters without padding.
@@ -530,7 +554,10 @@ mod tests {
 
     #[test]
     fn argon2_honours_the_requested_salt_size() {
-        let opts = Argon2Options { salt_length: Some(32), ..Default::default() };
+        let opts = Argon2Options {
+            salt_length: Some(32),
+            ..Default::default()
+        };
         let hash = argon2_hash("hunter2", opts).unwrap();
         let salt = hash.split('$').nth(4).unwrap();
         // 32 raw bytes is 43 base64 characters without padding.
@@ -541,7 +568,10 @@ mod tests {
     #[test]
     fn argon2_rejects_a_salt_outside_the_safe_range() {
         for len in [4usize, 64] {
-            let opts = Argon2Options { salt_length: Some(len), ..Default::default() };
+            let opts = Argon2Options {
+                salt_length: Some(len),
+                ..Default::default()
+            };
             assert!(argon2_hash("hunter2", opts).is_err(), "len {}", len);
         }
     }
