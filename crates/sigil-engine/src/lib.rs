@@ -266,12 +266,23 @@ pub fn scrypt_hash(password: &str, opts: ScryptOptions) -> Result<String, String
     ))
 }
 
+/// The five fields of a PHC scrypt string, named rather than positional — a
+/// five-tuple of `(u32, u32, u32, Vec<u8>, Vec<u8>)` says nothing about which
+/// cost parameter is which at the call site.
+struct ScryptHash {
+    cost: u32,
+    r: u32,
+    p: u32,
+    salt: Vec<u8>,
+    stored_key: Vec<u8>,
+}
+
 /// Parse the Adonis-parity PHC scrypt string
 /// `$scrypt$n=<cost>,r=<r>,p=<p>$<b64 salt>$<b64 hash>`.
-fn parse_scrypt_hash(hash: &str) -> Option<(u32, u32, u32, Vec<u8>, Vec<u8>)> {
+fn parse_scrypt_hash(hash: &str) -> Option<ScryptHash> {
     let mut parts = hash.split('$');
     // Leading `$` yields an empty first segment.
-    if parts.next()? != "" {
+    if !parts.next()?.is_empty() {
         return None;
     }
     if parts.next()? != "scrypt" {
@@ -296,14 +307,27 @@ fn parse_scrypt_hash(hash: &str) -> Option<(u32, u32, u32, Vec<u8>, Vec<u8>)> {
             _ => return None,
         }
     }
-    Some((cost?, r?, p?, salt, stored_key))
+    Some(ScryptHash {
+        cost: cost?,
+        r: r?,
+        p: p?,
+        salt,
+        stored_key,
+    })
 }
 
 pub fn scrypt_verify(password: &str, hash: &str) -> bool {
     if password.len() > MAX_PASSWORD_BYTES {
         return false;
     }
-    let Some((cost, r, p, salt, stored_key)) = parse_scrypt_hash(hash) else {
+    let Some(ScryptHash {
+        cost,
+        r,
+        p,
+        salt,
+        stored_key,
+    }) = parse_scrypt_hash(hash)
+    else {
         return false;
     };
     // Derive the key length from the stored hash itself. Guard an empty key so a
