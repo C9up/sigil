@@ -34,7 +34,7 @@
     "types": [
       "node"
     ],
-    "outDir": "dist"
+    "noEmit": true
   },
   "include": [
     "src",
