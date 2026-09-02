@@ -4,9 +4,9 @@ version = "0.1.4"
 edition = "2021"
 
 [dependencies]
-argon2 = "0.5"
-password-hash = { version = "0.5", features = ["std"] }
-bcrypt = "0.16"
-scrypt = "0.11"
-base64 = "0.22"
-getrandom = "0.2"
+argon2 = "0.6"
+password-hash = { version = "0.6", features = ["alloc"] }
+bcrypt = "0.19"
+scrypt = { version = "0.12", features = ["phc"] }
+base64 = "0.23"
+getrandom = "0.4"

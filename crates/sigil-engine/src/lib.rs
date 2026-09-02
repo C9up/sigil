@@ -1,6 +1,6 @@
 use argon2::{Algorithm, Argon2, Params, PasswordHash, PasswordHasher, PasswordVerifier, Version};
 use base64::{engine::general_purpose::STANDARD_NO_PAD, Engine as _};
-use password_hash::{rand_core::OsRng as PwOsRng, SaltString};
+use password_hash::phc::Salt;
 
 const MAX_PASSWORD_BYTES: usize = 1024;
 const BCRYPT_MAX_BYTES: usize = 72;
@@ -70,19 +70,30 @@ fn build_params(opts: &Argon2Options) -> Result<Params, String> {
 }
 
 /// A salt of the requested size, or the crate default when none is asked for.
-fn build_salt(salt_length: Option<usize>) -> Result<SaltString, String> {
-    let Some(len) = salt_length else {
-        return Ok(SaltString::generate(&mut PwOsRng));
+///
+/// RAW bytes, not a B64 `SaltString`. password-hash 0.6 takes the salt as
+/// `&[u8]` (`hash_password_with_salt`) and does its own encoding, where 0.5
+/// wanted the encoded form — so the `SaltString::encode_b64` this used to call
+/// is gone rather than renamed. Handing encoded text to something expecting
+/// bytes is the mistake that produces a salt of the wrong length with no error
+/// at all, which is why the tests assert the length rather than only that a
+/// hash verifies.
+fn build_salt(salt_length: Option<usize>) -> Result<Vec<u8>, String> {
+    let len = match salt_length {
+        Some(len) => {
+            if !(MIN_SALT_BYTES..=MAX_SALT_BYTES).contains(&len) {
+                return Err(format!(
+                    "Argon2 saltSize must be between {} and {} bytes, got {}.",
+                    MIN_SALT_BYTES, MAX_SALT_BYTES, len
+                ));
+            }
+            len
+        }
+        None => Salt::RECOMMENDED_LENGTH,
     };
-    if !(MIN_SALT_BYTES..=MAX_SALT_BYTES).contains(&len) {
-        return Err(format!(
-            "Argon2 saltSize must be between {} and {} bytes, got {}.",
-            MIN_SALT_BYTES, MAX_SALT_BYTES, len
-        ));
-    }
     let mut bytes = vec![0u8; len];
-    getrandom::getrandom(&mut bytes).map_err(|e| format!("Argon2 salt error: {}", e))?;
-    SaltString::encode_b64(&bytes).map_err(|e| format!("Argon2 salt error: {}", e))
+    getrandom::fill(&mut bytes).map_err(|e| format!("Argon2 salt error: {}", e))?;
+    Ok(bytes)
 }
 
 /// Build an Argon2 hasher for `make`. Borrows `opts.secret` when present, so the
@@ -107,7 +118,7 @@ pub fn argon2_hash(password: &str, opts: Argon2Options) -> Result<String, String
     let argon2 = build_argon2(&opts)?;
     let salt = build_salt(opts.salt_length)?;
     argon2
-        .hash_password(password.as_bytes(), &salt)
+        .hash_password_with_salt(password.as_bytes(), &salt)
         .map(|h| h.to_string())
         .map_err(|e| format!("Argon2 hash error: {}", e))
 }
@@ -192,7 +203,7 @@ pub fn bcrypt_hash(
     }
     let version = resolve_bcrypt_version(version)?;
     let mut salt = [0u8; BCRYPT_SALT_BYTES];
-    getrandom::getrandom(&mut salt).map_err(|e| format!("Bcrypt salt error: {}", e))?;
+    getrandom::fill(&mut salt).map_err(|e| format!("Bcrypt salt error: {}", e))?;
     bcrypt::hash_with_salt(password, rounds, salt)
         .map(|parts| parts.format_for_version(version))
         .map_err(|e| format!("Bcrypt hash error: {}", e))
@@ -244,10 +255,10 @@ pub fn scrypt_hash(password: &str, opts: ScryptOptions) -> Result<String, String
         ));
     }
     let log_n = cost.trailing_zeros() as u8;
-    let params = scrypt::Params::new(log_n, r, p, key_len)
+    let params = scrypt::Params::new_with_output_len(log_n, r, p, key_len)
         .map_err(|e| format!("Scrypt params error: {}", e))?;
     let mut salt = vec![0u8; salt_len];
-    getrandom::getrandom(&mut salt).map_err(|e| format!("RNG error: {}", e))?;
+    getrandom::fill(&mut salt).map_err(|e| format!("RNG error: {}", e))?;
     let mut key = vec![0u8; key_len];
     scrypt::scrypt(password.as_bytes(), &salt, &params, &mut key)
         .map_err(|e| format!("Scrypt error: {}", e))?;
@@ -342,7 +353,7 @@ pub fn scrypt_verify(password: &str, hash: &str) -> bool {
     }
     let log_n = cost.trailing_zeros() as u8;
     // Re-derive with the params ENCODED IN THE HASH, not the current default.
-    let Ok(params) = scrypt::Params::new(log_n, r, p, key_len) else {
+    let Ok(params) = scrypt::Params::new_with_output_len(log_n, r, p, key_len) else {
         return false;
     };
     let mut derived = vec![0u8; key_len];
@@ -517,7 +528,7 @@ mod tests {
         // proving verify reads n/r/p from the string instead of assuming the
         // current default cost.
         let salt = b"0123456789abcdef";
-        let params = scrypt::Params::new(10, 8, 1, 64).unwrap();
+        let params = scrypt::Params::new_with_output_len(10, 8, 1, 64).unwrap();
         let mut key = vec![0u8; 64];
         scrypt::scrypt(b"hunter2", salt, &params, &mut key).unwrap();
         let hash = format!(
@@ -641,6 +652,57 @@ mod stored_hash_compatibility {
     const ARGON2: &str = "$argon2id$v=19$m=19456,t=2,p=1$pl/vS1MLvCPhYG1DepHagg$Sv6FvOhPCgtYiQLFw6m2UptaXQSlFR6h5OJKbUXSHcA";
     const SCRYPT: &str = "$scrypt$n=16384,r=8,p=1$+YFfPVMiON8a17zrAt1FiA$m5q0g7mkBrr9NwGvpViDAvywDuHOKgQIoVAfPJ0alM7rk9H5m+4FGFmT8nHwQi+9DwCyJ9EGWQ+loE2h4xP9Gw";
     const BCRYPT: &str = "$2b$10$5waPGhJBcNCNG9IG.htEAedKAJECRTX0t/xxKFCPNswVo0516yxq6";
+
+    #[test]
+    fn a_generated_salt_has_the_length_that_was_asked_for() {
+        // The failure the stored-hash vectors CANNOT catch. They prove an old
+        // hash still verifies; they say nothing about a new one being weak.
+        // password-hash 0.6 takes the salt as raw bytes where 0.5 wanted the
+        // B64 form, and handing one to the other produces a salt of the wrong
+        // length with no error anywhere — every new password quietly weaker.
+        //
+        // The PHC string carries the salt B64-encoded, so the check decodes it
+        // back and compares byte counts.
+        use base64::engine::general_purpose::STANDARD_NO_PAD;
+        use base64::Engine;
+
+        let salt_of = |hash: &str| -> usize {
+            let encoded = hash.split('$').nth(4).expect("PHC has a salt field");
+            STANDARD_NO_PAD
+                .decode(encoded)
+                .expect("the salt field is B64")
+                .len()
+        };
+
+        for requested in [MIN_SALT_BYTES, 16, 24, MAX_SALT_BYTES] {
+            let hash = argon2_hash(
+                PASSWORD,
+                Argon2Options {
+                    salt_length: Some(requested),
+                    ..Argon2Options::default()
+                },
+            )
+            .expect("hashes");
+            assert_eq!(
+                salt_of(&hash),
+                requested,
+                "a saltSize of {requested} must produce {requested} bytes of salt"
+            );
+            assert!(argon2_verify(PASSWORD, &hash, None));
+        }
+
+        // The default is the crate's recommendation, not something shorter.
+        let hash = argon2_hash(PASSWORD, Argon2Options::default()).expect("hashes");
+        assert!(
+            salt_of(&hash) >= MIN_SALT_BYTES,
+            "the default salt must not be shorter than the floor we accept"
+        );
+
+        // Two hashes of the same password must not share a salt.
+        let a = argon2_hash(PASSWORD, Argon2Options::default()).expect("hashes");
+        let b = argon2_hash(PASSWORD, Argon2Options::default()).expect("hashes");
+        assert_ne!(a, b, "the salt must be random per hash");
+    }
 
     #[test]
     fn argon2_still_verifies_a_stored_hash() {
