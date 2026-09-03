@@ -338,6 +338,24 @@ fn parse_scrypt_hash(hash: &str) -> Option<ScryptHash> {
     })
 }
 
+/// Largest `N * r * p` a stored scrypt hash may ask for at verify time.
+///
+/// scrypt's cost travels inside the hash, so whoever writes the hash chooses
+/// how much work verifying it takes: memory is `128 * N * r` bytes and time
+/// grows with `N * r * p`. Without a bound, a single altered row turns every
+/// login attempt on that account into tens of seconds of CPU and gigabytes of
+/// memory — measured here, n=2^24 ran for roughly half a minute where the
+/// default takes 33ms. This is the same threat the empty-key guard below
+/// already answers: a stored hash is not necessarily one we wrote.
+///
+/// The bound is set against real configurations, not against the attack. The
+/// defaults come to 2^17, and OWASP's strongest scrypt recommendation
+/// (N=2^17, r=8, p=1) to 2^20 — so this is four times the strongest setting
+/// anyone should be running, and caps the worst case near a second and half a
+/// gigabyte. It bounds the escalation; it cannot make verifying a deliberately
+/// expensive configuration cheap, because that cost is the point of one.
+const MAX_SCRYPT_WORK: u64 = 1 << 22;
+
 pub fn scrypt_verify(password: &str, hash: &str) -> bool {
     if password.len() > MAX_PASSWORD_BYTES {
         return false;
@@ -360,6 +378,11 @@ pub fn scrypt_verify(password: &str, hash: &str) -> bool {
         return false;
     }
     if !cost.is_power_of_two() || cost < 2 {
+        return false;
+    }
+    // The hash names its own cost, so refuse one that asks for more work than
+    // any real configuration would (see MAX_SCRYPT_WORK).
+    if u64::from(cost) * u64::from(r) * u64::from(p) > MAX_SCRYPT_WORK {
         return false;
     }
     let log_n = cost.trailing_zeros() as u8;
