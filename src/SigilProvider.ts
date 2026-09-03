@@ -1,3 +1,4 @@
+import "./augmentations.js";
 import type { HashConfig } from "./Hash.js";
 import { Hash } from "./Hash.js";
 import { setHash } from "./services/main.js";
