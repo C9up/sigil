@@ -38,9 +38,15 @@ export default class SigilProvider {
 				},
 			);
 		});
-		this.app.container.singleton("hash", async () => {
-			return await this.app.container.resolve<Hash>(Hash);
-		});
+		// Namespaced by the package that owns it, the way upstream namespaces
+		// `lucid.db`, `auth.manager` and `drive.manager` by theirs. The bare
+		// `hash` stays bound beside it: it is what every existing
+		// `container.make('hash')` asks for, and a token is not worth breaking
+		// an application over.
+		const hasher = async (): Promise<Hash> =>
+			await this.app.container.resolve<Hash>(Hash);
+		this.app.container.singleton("sigil.hash", hasher);
+		this.app.container.singleton("hash", hasher);
 	}
 
 	async boot() {

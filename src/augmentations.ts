@@ -23,6 +23,11 @@ import type { Hash } from "./Hash.js";
 declare module "@c9up/ream/types" {
 	interface ContainerBindings {
 		/** The password hasher, bound by `SigilProvider`. */
+		"sigil.hash": Hash;
+		/**
+		 * The same hasher under the name it had before the token carried its
+		 * package. Kept bound so an existing `container.make('hash')` resolves.
+		 */
 		hash: Hash;
 	}
 }
