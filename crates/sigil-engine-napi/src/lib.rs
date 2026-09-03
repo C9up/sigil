@@ -32,6 +32,26 @@ pub struct Argon2Options {
     pub salt_length: Option<u32>,
 }
 
+/// The Argon2 cost parameters used when the application configures none.
+/// `needsReHash` compares a stored hash against these, so they must come from
+/// the engine rather than be restated on the JavaScript side.
+#[napi(object)]
+pub struct Argon2Defaults {
+    pub memory_kib: u32,
+    pub iterations: u32,
+    pub parallelism: u32,
+}
+
+#[napi]
+pub fn argon2_defaults() -> Argon2Defaults {
+    let (memory_kib, iterations, parallelism) = sigil_engine::argon2_default_params();
+    Argon2Defaults {
+        memory_kib,
+        iterations,
+        parallelism,
+    }
+}
+
 #[napi(object)]
 pub struct ScryptOptions {
     /// CPU/memory cost (N). Power of two > 1. Default 16384.

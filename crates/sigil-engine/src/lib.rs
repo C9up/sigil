@@ -31,6 +31,17 @@ pub struct Argon2Options {
     pub salt_length: Option<usize>,
 }
 
+/// The Argon2 cost parameters a hash gets when the application configures none.
+///
+/// Read from the crate rather than restated, because `needsReHash` has to
+/// compare a stored hash against what hashing it TODAY would produce. Writing
+/// the numbers down in TypeScript would make that comparison right until the
+/// day the crate raises its defaults — which is the day it most needs to be.
+pub fn argon2_default_params() -> (u32, u32, u32) {
+    let p = Params::DEFAULT;
+    (p.m_cost(), p.t_cost(), p.p_cost())
+}
+
 /// Minimum salt accepted by the Argon2 spec; below it the hash is weakened.
 const MIN_SALT_BYTES: usize = 8;
 /// The PHC salt field caps at 64 encoded bytes, so raw salt is bounded too.

@@ -21,6 +21,18 @@ export interface Argon2Options {
 	saltLength?: number;
 }
 
+/**
+ * The Argon2 cost parameters used when the application configures none.
+ * `needsReHash` compares a stored hash against these, so they must come from
+ * the engine rather than be restated on the JavaScript side.
+ */
+
+export interface Argon2Defaults {
+	memoryKib: number;
+	iterations: number;
+	parallelism: number;
+}
+
 export interface ScryptOptions {
 	/** CPU/memory cost (N). Power of two > 1. Default 16384. */
 	cost?: number;
@@ -33,6 +45,8 @@ export interface ScryptOptions {
 	/** Salt size in bytes. Default 16. */
 	saltLength?: number;
 }
+
+export declare function argon2Defaults(): Argon2Defaults;
 
 export declare function argon2Hash(
 	password: string,

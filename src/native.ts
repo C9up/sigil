@@ -78,6 +78,22 @@ export function argon2Hash(
 	return native?.argon2Hash(password, options) ?? null;
 }
 
+/**
+ * The Argon2 cost parameters the engine applies when nothing is configured.
+ *
+ * `needsReHash` needs them to answer its actual question — "would hashing this
+ * again produce something stronger?" — for an application that configured no
+ * parameters, which is most of them. Asking the engine keeps the answer right
+ * when the crate raises its defaults.
+ */
+export function argon2Defaults(): {
+	memoryKib: number;
+	iterations: number;
+	parallelism: number;
+} | null {
+	return native?.argon2Defaults() ?? null;
+}
+
 export function argon2Verify(
 	password: string,
 	hash: string,

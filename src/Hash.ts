@@ -23,6 +23,7 @@
 import { AssertionError } from "node:assert";
 import {
 	type Argon2NativeOptions,
+	argon2Defaults,
 	argon2Hash,
 	argon2Verify,
 	bcryptHash,
@@ -175,15 +176,25 @@ class Argon2Driver implements HashDriver {
 
 	needsReHash(hash: string): boolean {
 		if (!hash.startsWith("$argon2")) return true; // different algorithm
-		const o = this.#options;
-		if (!o) return false; // native defaults — no configured params to drift from
-		const m = hash.match(/m=(\d+),t=(\d+),p=(\d+)/);
+		const m = hash.match(/^\$argon2(id|i|d)\$.*m=(\d+),t=(\d+),p=(\d+)/);
 		if (!m) return true;
-		if (o.memoryKib !== undefined && Number(m[1]) !== o.memoryKib) return true;
-		if (o.iterations !== undefined && Number(m[2]) !== o.iterations)
-			return true;
-		if (o.parallelism !== undefined && Number(m[3]) !== o.parallelism)
-			return true;
+		const o = this.#options;
+		// Falling back to the engine's own defaults is what makes this answer the
+		// question it is asked: "would hashing this again produce something
+		// stronger?" Returning false whenever nothing was configured meant a hash
+		// minted with weak parameters — m=512, t=1 — was never upgraded by the
+		// applications that configure nothing, which is most of them. The values
+		// come from the engine so they cannot drift from what `make` would use.
+		const defaults = argon2Defaults();
+		const memory = o?.memoryKib ?? defaults?.memoryKib;
+		const iterations = o?.iterations ?? defaults?.iterations;
+		const parallelism = o?.parallelism ?? defaults?.parallelism;
+		// argon2i and argon2d are not what argon2id would produce, and the
+		// difference is a security property rather than a formatting one.
+		if (m[1] !== (o?.variant ?? "id")) return true;
+		if (memory !== undefined && Number(m[2]) !== memory) return true;
+		if (iterations !== undefined && Number(m[3]) !== iterations) return true;
+		if (parallelism !== undefined && Number(m[4]) !== parallelism) return true;
 		return false;
 	}
 }
@@ -226,6 +237,15 @@ class BcryptDriver implements HashDriver {
 	}
 
 	async verify(hash: string, value: string): Promise<boolean> {
+		// Both of these are answers, not failures. A stored hash bcrypt did not
+		// produce belongs to an application that changed algorithms — the case
+		// `needsReHash` below exists to handle — and a value past the 72-byte
+		// limit could never have been hashed by `make`, so no stored hash can
+		// match it. The native call reports either as an error, which turned an
+		// ordinary failed login into a 500 on a route anyone can reach.
+		// argon2 and scrypt both return false here.
+		if (!this.isValidHash(hash)) return false;
+		if (Buffer.byteLength(value, "utf8") > BCRYPT_MAX_BYTES) return false;
 		await ensureNative();
 		return requireNative(bcryptVerify(value, hash), "bcrypt");
 	}
