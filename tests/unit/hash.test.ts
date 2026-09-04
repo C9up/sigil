@@ -214,7 +214,7 @@ describe("sigil > Hash", () => {
 			expect(h.needsReHash("$argon2id$v=19$m=19456,t=2,p=1$abc$def")).toBe(
 				true,
 			);
-			expect(h.needsReHash("$2b$12$" + "x".repeat(53))).toBe(true); // bcrypt under argon driver
+			expect(h.needsReHash(`$2b$12$${"x".repeat(53)}`)).toBe(true); // bcrypt under argon driver
 		});
 
 		it("bcrypt: compares the cost factor to the configured rounds", () => {
@@ -222,8 +222,8 @@ describe("sigil > Hash", () => {
 				default: "bcrypt",
 				drivers: { bcrypt: { driver: "bcrypt", rounds: 12 } },
 			});
-			expect(h.needsReHash("$2b$12$" + "x".repeat(53))).toBe(false);
-			expect(h.needsReHash("$2b$10$" + "x".repeat(53))).toBe(true);
+			expect(h.needsReHash(`$2b$12$${"x".repeat(53)}`)).toBe(false);
+			expect(h.needsReHash(`$2b$10$${"x".repeat(53)}`)).toBe(true);
 		});
 
 		it("scrypt: false when n/r/p match, true when they drift or algo differs", () => {
@@ -259,14 +259,14 @@ describe("sigil > Hash", () => {
 				true,
 			);
 			expect(h.isValidHash("$argon2i$v=19$m=65536,t=3,p=4$abc$def")).toBe(true);
-			expect(h.isValidHash("$2b$12$" + "x".repeat(53))).toBe(false);
+			expect(h.isValidHash(`$2b$12$${"x".repeat(53)}`)).toBe(false);
 			expect(h.isValidHash("plain")).toBe(false);
 		});
 
 		it("bcrypt accepts $2[aby]$NN$ and rejects others", () => {
 			const h = make("bcrypt");
-			expect(h.isValidHash("$2b$12$" + "x".repeat(53))).toBe(true);
-			expect(h.isValidHash("$2a$10$" + "x".repeat(53))).toBe(true);
+			expect(h.isValidHash(`$2b$12$${"x".repeat(53)}`)).toBe(true);
+			expect(h.isValidHash(`$2a$10$${"x".repeat(53)}`)).toBe(true);
 			expect(h.isValidHash("$argon2id$v=19$m=1,t=1,p=1$a$b")).toBe(false);
 		});
 
@@ -279,7 +279,7 @@ describe("sigil > Hash", () => {
 
 		it("use() exposes isValidHash on the returned Hasher (chaining parity)", () => {
 			const h = make("bcrypt");
-			expect(h.use("bcrypt").isValidHash("$2b$12$" + "x".repeat(53))).toBe(
+			expect(h.use("bcrypt").isValidHash(`$2b$12$${"x".repeat(53)}`)).toBe(
 				true,
 			);
 		});
