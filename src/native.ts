@@ -1,7 +1,4 @@
-import { createRequire } from "node:module";
-import { dirname, join } from "node:path";
-import { arch, platform } from "node:process";
-import { fileURLToPath } from "node:url";
+import { loadNativeBinary } from "./vendor/nativeBinary.js";
 
 export interface Argon2NativeOptions {
 	memoryKib?: number;
@@ -48,23 +45,10 @@ export async function loadNative(): Promise<void> {
 	// for an absent binary, triggering OS-level lookup churn.
 	if (native || attempted) return;
 	attempted = true;
-	try {
-		const req = createRequire(import.meta.url);
-		const dir = dirname(fileURLToPath(import.meta.url));
-		const platformMap: Record<string, string> = {
-			"linux-x64": "linux-x64-gnu",
-			"linux-arm64": "linux-arm64-gnu",
-			"darwin-x64": "darwin-x64",
-			"darwin-arm64": "darwin-arm64",
-			"win32-x64": "win32-x64-msvc",
-		};
-		const suffix = platformMap[`${platform}-${arch}`];
-		if (suffix) {
-			native = req(join(dir, `../index.${suffix}.node`));
-		}
-	} catch {
-		// Binary not loadable — `attempted` keeps subsequent calls O(1).
-	}
+	// `attempted` keeps a second call O(1): a missing binary would otherwise
+	// send the OS looking for it on every hash.
+	const attempt = loadNativeBinary<NativeSigil>();
+	if (attempt.loaded) native = attempt.binary;
 }
 
 export function isNativeLoaded(): boolean {
