@@ -1,7 +1,7 @@
 import "./augmentations.js";
 import type { HashConfig } from "./Hash.js";
 import { Hash } from "./Hash.js";
-import { setHash } from "./services/main.js";
+import { clearHash, getHash, setHash } from "./services/main.js";
 
 /**
  * Duck-typed host context — sigil stays publishable without importing
@@ -21,6 +21,9 @@ export interface SigilAppContext {
 }
 
 export default class SigilProvider {
+	/** What this provider bound, so shutdown only clears its own. */
+	#owned: Hash | undefined;
+
 	constructor(protected app: SigilAppContext) {}
 
 	register() {
@@ -50,8 +53,17 @@ export default class SigilProvider {
 	}
 
 	async boot() {
-		setHash(await this.app.container.resolve<Hash>(Hash));
+		const hash = await this.app.container.resolve<Hash>(Hash);
+		this.#owned = hash;
+		setHash(hash);
 	}
 
-	async shutdown() {}
+	async shutdown() {
+		// Release the module-level singleton, while it is still ours. A stopped
+		// application left a dead hasher reachable through `services/main`, and
+		// with two applications in one process the survivor's binding must not
+		// be the one cleared.
+		if (this.#owned !== undefined && getHash() === this.#owned) clearHash();
+		this.#owned = undefined;
+	}
 }

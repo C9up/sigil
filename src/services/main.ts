@@ -24,6 +24,18 @@ export function getHash(): Hash | undefined {
 	return instance;
 }
 
+/**
+ * @internal Release the singleton, so a shut-down application does not leave a
+ * dead hasher reachable through `services/main`.
+ *
+ * The caller checks ownership first (`getHash() === mine`): two applications
+ * share this module in one process, and the one shutting down must not clear
+ * what the other has since bound.
+ */
+export function clearHash(): void {
+	instance = undefined;
+}
+
 const hash: Hash = new Proxy({} as Hash, {
 	get(_target, prop) {
 		if (!instance) {
