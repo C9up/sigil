@@ -1,0 +1,16 @@
+---
+to: config/hash.ts
+---
+import { defineConfig, drivers } from '@c9up/sigil'
+import env from '#start/env'
+
+export default defineConfig({
+  // argon2id unless there is a reason: it is the one that costs an attacker
+  // memory as well as time.
+  default: env.get('HASH_DRIVER', 'argon2'),
+
+  list: {
+    argon2: drivers.argon2(),
+    // bcrypt: drivers.bcrypt({ rounds: 12 }),
+  },
+})
