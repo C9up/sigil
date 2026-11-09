@@ -11,11 +11,25 @@ Multi-driver password hashing service backed by Rust NAPI. Built on the same mod
 
 | Driver key | Algorithm | When to use |
 |---|---|---|
-| `argon2` *(default)* | argon2id | New applications. Memory-hard, side-channel resistant, OWASP-recommended for password storage. Pinned to the **argon2id** variant (V0x13). Tunable via config: `memory` (KiB, alias `memoryKib`), `iterations`, `parallelism`, and `secret` (a "pepper" not encoded in the hash — verification requires the same secret). |
-| `bcrypt` | bcrypt | Interoperating with legacy systems (Rails, PHP, Java) that already store bcrypt hashes. `rounds` is configurable (default 12, OWASP minimum 10). Emits the standard `$2b$` MCF string, which `@adonisjs/hash` also accepts on verify. |
-| `scrypt` | scrypt | Memory-hardness with a different parameter space than argon2. Work factor configurable via config: `cost` (N, default 16384), `blockSize` (r, default 8), `parallelization` (p, default 1), plus `keyLength`, `saltSize`, and a `maxMemory` guard. Emits the `@adonisjs/hash`-compatible PHC form `$scrypt$n=…,r=…,p=…$<b64 salt>$<b64 hash>`, so scrypt hashes cross-verify with AdonisJS. |
+| `argon2` *(default)* | argon2id | New applications. Memory-hard, side-channel resistant, OWASP-recommended for password storage. Defaults to **argon2id** (version 19), 64 MiB, 3 iterations, 4 lanes. Tunable via config: `variant`, `memory` (KiB, alias `memoryKib`), `iterations`, `parallelism`, `saltSize`, `hashLength`, and `secret` (a "pepper" not encoded in the hash — verification requires the same secret). |
+| `bcrypt` | bcrypt | Interoperating with legacy systems (Rails, PHP, Java) that already store bcrypt hashes. `rounds` is configurable (default 12, minimum 10, maximum 16). Writes the standard MCF string (`$2b$12$…`), the form every bcrypt implementation reads. Verify also reads the PHC form `$bcrypt$v=98$r=10$<b64 salt>$<b64 digest>` that `@adonisjs/hash` stores; `needsReHash` answers true for it, so such a hash is rewritten as MCF on the user's next login. |
+| `scrypt` | scrypt | Memory-hardness with a different parameter space than argon2. Work factor configurable via config: `cost` (N, default 16384), `blockSize` (r, default 8), `parallelization` (p, default 1), plus `keyLength` (64 to 128), `saltSize`, and `maxMemory` (default 32 MiB), which bounds verify as well as make. Writes the PHC form `$scrypt$n=…,r=…,p=…$<b64 salt>$<b64 hash>`, the one `@adonisjs/hash` writes too, so scrypt hashes verify in both directions. |
 
 All drivers run through the dedicated `sigil-engine` Rust crate (the native half of `@c9up/sigil`) — no JavaScript or TypeScript fallback. This is intentional: password hashing must hit a vetted, constant-time native implementation.
+
+`make` and `verify` return Promises, and the key derivation runs on the libuv thread pool, never on the event loop: a burst of concurrent logins slows those logins down, not every other request the process is serving. Concurrent derivations share the pool's threads (4 by default, `UV_THREADPOOL_SIZE` to change it).
+
+### Verify cost limits
+
+A hash carries its own cost, so whoever can write a stored hash decides how much work verifying it takes. `verify` refuses — returns `false` without deriving — a stored hash costing far more than any real configuration:
+
+| Driver | Refused when |
+|---|---|
+| `argon2` | `m × t` (KiB × iterations) exceeds 2^20, about five times the defaults |
+| `bcrypt` | the cost exceeds 16 |
+| `scrypt` | `N × r × p` exceeds 2^22, or the working set `128 × r × (N + p + 2)` exceeds the configured `maxMemory` |
+
+The same limits apply to the configuration: a driver configured above them throws when it is built, since its hashes would never verify.
 
 ## NAPI binding requirement
 
@@ -100,11 +114,23 @@ export default defineConfig({
 })
 ```
 
-Honored config keys (anything else is silently ignored today):
+Honored config keys. Every value is validated when the driver is built — at boot — and a value out of range or of the wrong type (`rounds: '12'` read from an environment variable) throws a `TypeError` there rather than at the first hash:
 
-- `argon2` — `memory` (KiB), `iterations`, `parallelism`, and `secret` (keyed hashing; a UTF-8 string). Omitted keys fall back to the Rust binding's defaults.
-- `bcrypt` — `rounds: number` (default 12, minimum 10).
-- `scrypt` — `cost` (N, default 16384), `blockSize` (r, default 8), `parallelization` (p, default 1), `keyLength` (default 64), `saltLength` (default 32), `maxMemory`.
+- `argon2` — `variant` (`'id'` default, `'i'`, `'d'`), `memory` (KiB, default 65536, at least 8 × `parallelism`), `iterations` (default 3, at least 2), `parallelism` (default 4), `saltSize` (8 to 48, default 16), `hashLength` (10 to 64, default 32), and `secret` (keyed hashing: a string, or a `Secret` such as `env.get('APP_KEY')` returns).
+- `bcrypt` — `rounds` (10 to 16, default 12), `version` (`97` for `$2a$`, `98` for `$2b$` — the default — or `121` for `$2y$`), `saltSize` (16 only: the algorithm fixes it).
+- `scrypt` — `cost` (N, a power of two, default 16384), `blockSize` (r, default 8), `parallelization` (p, default 1), `keyLength` (64 to 128, default 64), `saltSize` (alias `saltLength`, 8 to 1024, default 16), `maxMemory` (bytes, default 32 MiB, at least the working set `128 × r × (N + p + 2)`).
+
+```ts
+import { defineConfig, drivers } from '@c9up/sigil'
+import env from '#start/env'
+
+export default defineConfig({
+  default: 'argon2',
+  list: {
+    argon2: drivers.argon2({ secret: env.get('APP_KEY') }),
+  },
+})
+```
 
 When `SigilProvider` boots without a `config/hash.ts`, the fallback is `argon2` with the recommended defaults — see Story 40.1's `SigilProvider` fix.
 

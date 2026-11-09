@@ -71,13 +71,15 @@ describe("sigil > argon2 lengths", () => {
 		expect(await argon2({ saltSize: 32 }).verify(hashed, "hunter2")).toBe(true);
 	});
 
-	it("refuses a salt outside the safe range instead of quietly clamping it", async () => {
-		await expect(argon2({ saltSize: 4 }).make("hunter2")).rejects.toThrow();
+	it("refuses a salt outside the safe range instead of quietly clamping it", () => {
+		expect(() => argon2({ saltSize: 4 })).toThrow(/saltSize/);
 	});
 
 	it("refuses an unknown variant at CONFIG time, not at the first hash", () => {
 		// A bad config should surface at boot, not on a user's first login.
-		expect(() => argon2({ variant: "z" })).toThrow(/Unknown Argon2 variant/);
+		expect(() => argon2({ variant: "z" })).toThrow(
+			'The "variant" option must be one of: d,i,id',
+		);
 	});
 });
 
@@ -103,9 +105,7 @@ describe("sigil > bcrypt version", () => {
 
 	it("refuses a saltSize bcrypt cannot produce", async () => {
 		// The algorithm fixes it at 16 bytes; anything else is unreadable.
-		await expect(
-			bcrypt({ rounds: 10, saltSize: 32 }).make("x"),
-		).rejects.toThrow();
+		expect(() => bcrypt({ rounds: 10, saltSize: 32 })).toThrow(/saltSize/);
 		await expect(
 			bcrypt({ rounds: 10, saltSize: 16 }).make("x"),
 		).resolves.toBeTruthy();

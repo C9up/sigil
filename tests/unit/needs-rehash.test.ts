@@ -7,9 +7,8 @@
  * parameters was never upgraded in exactly the applications that took the
  * defaults, which is most of them.
  *
- * The comparison is against the engine's own defaults rather than numbers
- * written down here, because the question is what hashing it again would
- * produce today.
+ * The comparison is against the resolved configuration, defaults included,
+ * because the question is what hashing it again would produce today.
  */
 
 import { describe, expect, it } from "vitest";
@@ -26,7 +25,7 @@ describe("sigil > needsReHash with no configuration", () => {
 	it("upgrades a hash minted with weak parameters", async () => {
 		const weak = await hasher({
 			memory: 512,
-			iterations: 1,
+			iterations: 2,
 			parallelism: 1,
 		}).make("secret");
 

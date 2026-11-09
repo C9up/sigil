@@ -20,6 +20,8 @@ export interface ScryptNativeOptions {
 	parallelization?: number;
 	keyLength?: number;
 	saltLength?: number;
+	/** Largest working set in bytes, `128 * r * (N + p + 2)`. Default 32 MiB. */
+	maxMemory?: number;
 }
 
 /**
@@ -55,20 +57,19 @@ export function isNativeLoaded(): boolean {
 	return native !== null;
 }
 
+// Every hash and verify below runs on the libuv thread pool and returns a
+// Promise; `null` means the engine is not loaded.
+
 export function argon2Hash(
 	password: string,
 	options?: Argon2NativeOptions,
-): string | null {
+): Promise<string> | null {
 	return native?.argon2Hash(password, options) ?? null;
 }
 
 /**
  * The Argon2 cost parameters the engine applies when nothing is configured.
- *
- * `needsReHash` needs them to answer its actual question — "would hashing this
- * again produce something stronger?" — for an application that configured no
- * parameters, which is most of them. Asking the engine keeps the answer right
- * when the crate raises its defaults.
+ * The driver states the same values; a test holds the two together.
  */
 export function argon2Defaults(): {
 	memoryKib: number;
@@ -78,11 +79,23 @@ export function argon2Defaults(): {
 	return native?.argon2Defaults() ?? null;
 }
 
+/**
+ * The most work a stored hash may ask for at verify time, which the drivers
+ * also apply to their configuration. A test holds the two together.
+ */
+export function costLimits(): {
+	maxArgon2Work: number;
+	maxBcryptCost: number;
+	maxScryptWork: number;
+} | null {
+	return native?.costLimits() ?? null;
+}
+
 export function argon2Verify(
 	password: string,
 	hash: string,
 	secret?: Buffer,
-): boolean | null {
+): Promise<boolean> | null {
 	return native?.argon2Verify(password, hash, secret) ?? null;
 }
 
@@ -91,21 +104,28 @@ export function bcryptHash(
 	rounds?: number,
 	version?: number,
 	saltLength?: number,
-): string | null {
+): Promise<string> | null {
 	return native?.bcryptHash(password, rounds, version, saltLength) ?? null;
 }
 
-export function bcryptVerify(password: string, hash: string): boolean | null {
+export function bcryptVerify(
+	password: string,
+	hash: string,
+): Promise<boolean> | null {
 	return native?.bcryptVerify(password, hash) ?? null;
 }
 
 export function scryptHash(
 	password: string,
 	options?: ScryptNativeOptions,
-): string | null {
+): Promise<string> | null {
 	return native?.scryptHash(password, options) ?? null;
 }
 
-export function scryptVerify(password: string, hash: string): boolean | null {
-	return native?.scryptVerify(password, hash) ?? null;
+export function scryptVerify(
+	password: string,
+	hash: string,
+	maxMemory?: number,
+): Promise<boolean> | null {
+	return native?.scryptVerify(password, hash, maxMemory) ?? null;
 }

@@ -4,6 +4,11 @@ export function defineConfig(config: HashConfig): HashConfig {
 	return config;
 }
 
+/** Anything that releases a secret string — an environment `Secret`. */
+export interface ReleasableSecret {
+	release(): string;
+}
+
 /** Argon2 settings (AdonisJS `ArgonConfig`). */
 export interface Argon2Options {
 	variant?: "d" | "i" | "id";
@@ -12,6 +17,11 @@ export interface Argon2Options {
 	parallelism?: number;
 	saltSize?: number;
 	hashLength?: number;
+	/**
+	 * Pepper: a key mixed into every hash and NOT stored in it. Verifying then
+	 * requires the same secret — lose it and every hash it produced is lost.
+	 */
+	secret?: string | ReleasableSecret;
 }
 
 /** Bcrypt settings (AdonisJS `BcryptConfig`). */

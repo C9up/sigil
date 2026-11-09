@@ -3,6 +3,7 @@ import "./augmentations.js";
 export type {
 	Argon2Options,
 	BcryptOptions,
+	ReleasableSecret,
 	ScryptOptions,
 } from "./config.js";
 export { defineConfig, drivers } from "./config.js";

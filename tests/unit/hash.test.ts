@@ -226,6 +226,29 @@ describe("sigil > Hash", () => {
 			expect(h.needsReHash(`$2b$10$${"x".repeat(53)}`)).toBe(true);
 		});
 
+		it("bcrypt: compares the version letter to the configured version", () => {
+			const tail = `$12$${"x".repeat(53)}`;
+			const withVersion = (version?: number) =>
+				new Hash({
+					default: "bcrypt",
+					drivers: {
+						bcrypt:
+							version === undefined
+								? { driver: "bcrypt", rounds: 12 }
+								: { driver: "bcrypt", rounds: 12, version },
+					},
+				});
+
+			// Default 98 writes `$2b$`: a `$2a$` or `$2y$` hash at the same cost
+			// is not what it would write, so it migrates.
+			expect(withVersion().needsReHash(`$2b${tail}`)).toBe(false);
+			expect(withVersion().needsReHash(`$2a${tail}`)).toBe(true);
+			expect(withVersion().needsReHash(`$2y${tail}`)).toBe(true);
+			expect(withVersion(97).needsReHash(`$2a${tail}`)).toBe(false);
+			expect(withVersion(97).needsReHash(`$2b${tail}`)).toBe(true);
+			expect(withVersion(121).needsReHash(`$2y${tail}`)).toBe(false);
+		});
+
 		it("scrypt: false when n/r/p match, true when they drift or algo differs", () => {
 			const h = new Hash({
 				default: "scrypt",
@@ -460,19 +483,21 @@ describe("sigil > Hash", () => {
 			expect(stronger.needsReHash(out)).toBe(true);
 		});
 
-		it("rejects a maxMemory smaller than the working set (fail closed)", async () => {
-			const h = new Hash({
-				default: "scrypt",
-				drivers: {
-					scrypt: {
-						driver: "scrypt",
-						cost: 16384,
-						blockSize: 8,
-						maxMemory: 1024,
-					},
-				},
-			});
-			await expect(h.make("password")).rejects.toThrow(/maxMemory/);
+		it("rejects a maxMemory smaller than the working set, at construction", () => {
+			expect(
+				() =>
+					new Hash({
+						default: "scrypt",
+						drivers: {
+							scrypt: {
+								driver: "scrypt",
+								cost: 16384,
+								blockSize: 8,
+								maxMemory: 1024,
+							},
+						},
+					}),
+			).toThrow(/maxMemory/);
 		});
 	});
 });
