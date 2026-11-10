@@ -63,9 +63,12 @@ describe.each([
 			),
 		);
 
-		// On the main thread the loop stalled for all eight verifies; off it,
-		// the timer keeps firing within a fraction of one verify.
-		expect(gap).toBeLessThan(single);
+		// On the main thread the loop stalls for all eight verifies back to
+		// back, about 8 times single; off it, the gap is timer jitter. Half of
+		// the stalled case keeps the two apart with a factor of two either
+		// way — `single` alone was within the jitter of a coarse timer
+		// (Windows ticks at ~16 ms, a scrypt verify takes ~33 ms).
+		expect(gap).toBeLessThan(4 * single);
 	});
 
 	it("overlaps concurrent verifies instead of queueing them", async () => {
