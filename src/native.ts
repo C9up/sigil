@@ -1,4 +1,4 @@
-import { loadNativeBinary } from "./vendor/nativeBinary.js";
+import { hasFunctions, loadNativeBinary } from "./vendor/nativeBinary.js";
 
 export interface Argon2NativeOptions {
 	memoryKib?: number;
@@ -25,7 +25,7 @@ export interface ScryptNativeOptions {
 }
 
 /**
- * The engine's surface, as the Rust declares it.
+ * What this package calls on the engine, typed as the Rust declares it.
  *
  * Derived from `./native/generated.js` — written by `pnpm build:napi-types`
  * from napi-derive's own `type-def` output — rather than restated here, where
@@ -36,7 +36,26 @@ export interface ScryptNativeOptions {
  * calls below still have to satisfy the generated signatures, so a field the
  * engine drops or renames stops compiling instead of failing at runtime.
  */
-type NativeSigil = typeof import("./native/generated.js");
+const NATIVE_CALLS = [
+	"argon2Hash",
+	"argon2Verify",
+	"argon2Defaults",
+	"costLimits",
+	"bcryptHash",
+	"bcryptVerify",
+	"scryptHash",
+	"scryptVerify",
+] as const;
+
+type NativeSigil = Pick<
+	typeof import("./native/generated.js"),
+	(typeof NATIVE_CALLS)[number]
+>;
+
+/** What the package calls, checked at load: a stale binary loads just as well. */
+function isNativeSigil(value: unknown): value is NativeSigil {
+	return hasFunctions(value, NATIVE_CALLS);
+}
 
 let native: NativeSigil | null = null;
 let attempted = false;
@@ -49,7 +68,7 @@ export async function loadNative(): Promise<void> {
 	attempted = true;
 	// `attempted` keeps a second call O(1): a missing binary would otherwise
 	// send the OS looking for it on every hash.
-	const attempt = loadNativeBinary<NativeSigil>();
+	const attempt = loadNativeBinary(isNativeSigil);
 	if (attempt.loaded) native = attempt.binary;
 }
 
