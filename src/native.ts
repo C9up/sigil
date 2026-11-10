@@ -68,7 +68,7 @@ export async function loadNative(): Promise<void> {
 	attempted = true;
 	// `attempted` keeps a second call O(1): a missing binary would otherwise
 	// send the OS looking for it on every hash.
-	const attempt = loadNativeBinary(isNativeSigil);
+	const attempt = loadNativeBinary(isNativeSigil, NATIVE_CALLS);
 	if (attempt.loaded) native = attempt.binary;
 }
 

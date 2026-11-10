@@ -61,12 +61,13 @@ describe.skipIf(nativeBinarySuffix() === undefined)(
 			}
 		});
 
-		it("says what the rejected binary does export", async () => {
+		it("names the calls a rejected binary lacks", async () => {
 			const { vendor } = await withBinary({ bcryptHash: () => null });
+			const calls = ["bcryptHash", "scryptHash", "argon2Hash"];
 
 			const attempt = vendor.loadNativeBinary(
-				(value): value is { bcryptHash: () => null; scryptHash: () => null } =>
-					vendor.hasFunctions(value, ["bcryptHash", "scryptHash"]),
+				(value): value is object => vendor.hasFunctions(value, calls),
+				calls,
 			);
 
 			expect(attempt.loaded).toBe(false);
@@ -74,20 +75,33 @@ describe.skipIf(nativeBinarySuffix() === undefined)(
 			expect(attempt.suffix).toBe(nativeBinarySuffix());
 			expect(attempt.cause).toBeInstanceOf(Error);
 			expect(String(attempt.cause)).toMatch(
-				/lacks functions this package calls \(it exports: bcryptHash\)[\s\S]*rebuild it/,
+				/loaded, but it lacks scryptHash, argon2Hash\. [\s\S]*rebuild it/,
 			);
 		});
 
-		it("refuses a module that is not an object at all", async () => {
+		it("names every call when the module is not an object at all", async () => {
 			const { vendor } = await withBinary("index.node");
 
-			const attempt = vendor.loadNativeBinary((value): value is object =>
-				vendor.hasFunctions(value, ["bcryptHash"]),
+			const attempt = vendor.loadNativeBinary(
+				(value): value is object => vendor.hasFunctions(value, ["bcryptHash"]),
+				["bcryptHash"],
 			);
 
 			expect(attempt.loaded).toBe(false);
 			if (attempt.loaded) return;
-			expect(String(attempt.cause)).toMatch(/it exports: none/);
+			expect(String(attempt.cause)).toMatch(/it lacks bcryptHash\./);
+		});
+
+		it("lists what the binary exports when the guard has no list to name", async () => {
+			const { vendor } = await withBinary({ bcryptHash: () => null });
+
+			const attempt = vendor.loadNativeBinary((value): value is object =>
+				vendor.hasFunctions(value, ["scryptHash"]),
+			);
+
+			expect(attempt.loaded).toBe(false);
+			if (attempt.loaded) return;
+			expect(String(attempt.cause)).toMatch(/it exports: bcryptHash\)/);
 		});
 
 		it("hands over a binary carrying every call", async () => {
