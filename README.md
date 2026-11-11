@@ -33,10 +33,10 @@ The same limits apply to the configuration: a driver configured above them throw
 
 ## NAPI binding requirement
 
-Sigil requires its native binding to be present at runtime. If the `.node` artifact is missing, the first call to `make()` / `verify()` throws:
+Sigil requires its native binding to be present at runtime. If the `.node` artifact is missing, the first call to `make()` / `verify()` throws `E_SIGIL_NAPI_REQUIRED` (`error.code === 'E_SIGIL_NAPI_REQUIRED'`):
 
 ```text
-[SIGIL_NAPI_REQUIRED] The argon2 Rust engine is required but not loaded.
+[E_SIGIL_NAPI_REQUIRED] The argon2 Rust engine is required but not loaded.
   Fix: cd packages/sigil && pnpm build:napi
 ```
 
@@ -172,6 +172,10 @@ In a Ream application, prefer the container-resolved `Hash` (see Quick start) ov
 | `HashConfig` | type | `{ default: string; list: Record<string, { driver: string; ...}> }` (`drivers` is the older spelling of `list`). |
 | `defineConfig` | helper | Type-safe config authoring. |
 | `SigilProvider` | provider | Registers `Hash` (and the `'hash'` token) in the Ream container. Imported via `@c9up/sigil/provider`. |
+| `SigilError` | class | Base of every error sigil raises; `error.code` is the `E_SIGIL_*` name of the subclass. |
+| `E_SIGIL_NAPI_REQUIRED` | class | A driver ran without the native engine loaded. |
+| `E_SIGIL_UNKNOWN_DRIVER` | class | A hasher in the config names a driver sigil does not have; thrown when `Hash` is built. |
+| `E_SIGIL_NOT_BOOTED` | class | `@c9up/sigil/services/main` used before `SigilProvider` booted. |
 
 ## Status
 

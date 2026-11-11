@@ -8,6 +8,7 @@ export type {
 } from "./config.js";
 export { defineConfig, drivers } from "./config.js";
 export {
+	E_SIGIL_NAPI_REQUIRED,
 	E_SIGIL_NOT_BOOTED,
 	E_SIGIL_UNKNOWN_DRIVER,
 	SigilError,
@@ -22,7 +23,6 @@ export type { HashConfig, HashDriver, HashDriverConfig } from "./Hash.js";
  * actually manages drivers.
  */
 export {
-	E_SIGIL_NAPI_REQUIRED,
 	Hash,
 	Hash as HashManager,
 	Hasher,

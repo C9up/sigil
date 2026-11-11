@@ -36,7 +36,12 @@ const standIn = (omit?: string) =>
 const HOST = { platform: "linux", arch: "x64", suffix: "linux-x64-gnu" };
 
 /** Load sigil with `require` answering `binary` for the `.node` file. */
-async function withBinary(binary: unknown) {
+function withBinary(binary: unknown) {
+	return withRequire(() => binary);
+}
+
+/** Load sigil with `require` running `load` for the `.node` file. */
+async function withRequire(load: () => unknown) {
 	vi.resetModules();
 	vi.doMock("node:process", async (importOriginal) => ({
 		...(await importOriginal<typeof import("node:process")>()),
@@ -45,11 +50,12 @@ async function withBinary(binary: unknown) {
 	}));
 	vi.doMock("node:module", async (importOriginal) => ({
 		...(await importOriginal<typeof import("node:module")>()),
-		createRequire: () => () => binary,
+		createRequire: () => load,
 	}));
 	return {
 		native: await import("../../src/native.js"),
 		vendor: await import("../../src/vendor/nativeBinary.js"),
+		sigil: await import("../../src/index.js"),
 	};
 }
 
@@ -120,4 +126,45 @@ describe("sigil > the loaded binary is checked", () => {
 
 		expect(native.isNativeLoaded()).toBe(true);
 	});
+});
+
+describe("sigil > without an engine, every driver refuses", () => {
+	// A well-formed stored hash per driver, so verify reaches the engine
+	// instead of answering false on the format check.
+	it.each([
+		["argon2", "$argon2id$v=19$m=65536,t=3,p=4$c2FsdHNhbHQ$aGFzaGhhc2g"],
+		["bcrypt", `$2b$10$${"a".repeat(53)}`],
+		["scrypt", "$scrypt$n=16384,r=8,p=1$c2FsdA$aGFzaA"],
+	])(
+		"%s rejects make and verify with E_SIGIL_NAPI_REQUIRED",
+		async (driver, stored) => {
+			const { sigil } = await withRequire(() => {
+				throw new Error("Cannot find module 'index.linux-x64-gnu.node'");
+			});
+			const hash = new sigil.Hash({
+				default: driver,
+				list: { [driver]: { driver } },
+			});
+
+			expect(hash.isValidHash(stored)).toBe(true);
+			for (const call of [
+				() => hash.make("secret"),
+				() => hash.verify(stored, "secret"),
+			]) {
+				const refusal = await call().then(
+					() => undefined,
+					(error: unknown) => error,
+				);
+				expect(refusal).toBeInstanceOf(sigil.E_SIGIL_NAPI_REQUIRED);
+				expect(refusal).toBeInstanceOf(sigil.SigilError);
+				expect(refusal).toMatchObject({
+					code: "E_SIGIL_NAPI_REQUIRED",
+					name: "E_SIGIL_NAPI_REQUIRED",
+				});
+				expect(String(refusal)).toContain(
+					`[E_SIGIL_NAPI_REQUIRED] The ${driver} Rust engine`,
+				);
+			}
+		},
+	);
 });

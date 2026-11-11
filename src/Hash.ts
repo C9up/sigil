@@ -22,7 +22,7 @@
  */
 
 import { AssertionError } from "node:assert";
-import { E_SIGIL_UNKNOWN_DRIVER } from "./errors.js";
+import { E_SIGIL_NAPI_REQUIRED, E_SIGIL_UNKNOWN_DRIVER } from "./errors.js";
 import {
 	ARGON2_DEFAULTS,
 	checkEnum,
@@ -103,18 +103,6 @@ const BCRYPT_MAX_BYTES = 72;
 async function ensureNative(): Promise<void> {
 	if (isNativeLoaded()) return;
 	await loadNative();
-}
-
-export class E_SIGIL_NAPI_REQUIRED extends Error {
-	readonly code = "SIGIL_NAPI_REQUIRED" as const;
-	constructor(driver: string, options?: ErrorOptions) {
-		super(
-			`[SIGIL_NAPI_REQUIRED] The ${driver} Rust engine is required but not loaded.\n` +
-				`  Fix: cd packages/sigil && pnpm build:napi`,
-			options,
-		);
-		this.name = "E_SIGIL_NAPI_REQUIRED";
-	}
 }
 
 function requireNative<T>(result: T | null, driver: string): T {

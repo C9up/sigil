@@ -89,14 +89,14 @@ describe("sigil > Hash", () => {
 			// declaration; nothing else to assert without monkey-patching `native`.
 			expect(E_SIGIL_NAPI_REQUIRED.prototype).toBeInstanceOf(Error);
 			const synthetic = new E_SIGIL_NAPI_REQUIRED("argon2");
-			expect(synthetic.code).toBe("SIGIL_NAPI_REQUIRED");
+			expect(synthetic.code).toBe("E_SIGIL_NAPI_REQUIRED");
 			expect(synthetic.name).toBe("E_SIGIL_NAPI_REQUIRED");
-			expect(synthetic.message).toContain("SIGIL_NAPI_REQUIRED");
+			expect(synthetic.message).toContain("[E_SIGIL_NAPI_REQUIRED]");
 			return;
 		} catch (err) {
 			// NAPI absent — assert the runtime throw is the typed Error.
 			expect(err).toBeInstanceOf(E_SIGIL_NAPI_REQUIRED);
-			expect((err as E_SIGIL_NAPI_REQUIRED).code).toBe("SIGIL_NAPI_REQUIRED");
+			expect((err as E_SIGIL_NAPI_REQUIRED).code).toBe("E_SIGIL_NAPI_REQUIRED");
 			expect((err as E_SIGIL_NAPI_REQUIRED).name).toBe("E_SIGIL_NAPI_REQUIRED");
 		}
 	});
@@ -164,7 +164,7 @@ describe("sigil > Hash", () => {
 				const out = await hash.make("a".repeat(71));
 				expect(typeof out).toBe("string");
 			} catch (err) {
-				expect((err as { code?: string }).code).toBe("SIGIL_NAPI_REQUIRED");
+				expect((err as { code?: string }).code).toBe("E_SIGIL_NAPI_REQUIRED");
 			}
 		});
 
@@ -174,7 +174,7 @@ describe("sigil > Hash", () => {
 				const out = await hash.make("a".repeat(72));
 				expect(typeof out).toBe("string");
 			} catch (err) {
-				expect((err as { code?: string }).code).toBe("SIGIL_NAPI_REQUIRED");
+				expect((err as { code?: string }).code).toBe("E_SIGIL_NAPI_REQUIRED");
 			}
 		});
 
@@ -190,7 +190,7 @@ describe("sigil > Hash", () => {
 				expect(typeof out).toBe("string");
 			} catch (err) {
 				// Native missing is OK — proves the size gate let it through
-				expect((err as { code?: string }).code).toBe("SIGIL_NAPI_REQUIRED");
+				expect((err as { code?: string }).code).toBe("E_SIGIL_NAPI_REQUIRED");
 			}
 		});
 	});
@@ -338,7 +338,7 @@ describe("sigil > Hash", () => {
 				expect(out).not.toBe("secret");
 				expect(out.startsWith("$argon2")).toBe(true);
 			} catch (err) {
-				expect((err as { code?: string }).code).toBe("SIGIL_NAPI_REQUIRED");
+				expect((err as { code?: string }).code).toBe("E_SIGIL_NAPI_REQUIRED");
 			}
 		});
 	});

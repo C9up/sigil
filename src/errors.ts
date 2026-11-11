@@ -18,6 +18,22 @@ export class SigilError extends Error {
 }
 
 /**
+ * Raised when a driver is used without the Rust engine loaded: the binary is
+ * missing, fails to load, or lacks a call sigil makes. Hashing goes through
+ * the engine or does not happen; there is no weaker fallback.
+ */
+export class E_SIGIL_NAPI_REQUIRED extends SigilError {
+	constructor(driver: string, options?: ErrorOptions) {
+		super(
+			"E_SIGIL_NAPI_REQUIRED",
+			`[E_SIGIL_NAPI_REQUIRED] The ${driver} Rust engine is required but not loaded.\n` +
+				"  Fix: cd packages/sigil && pnpm build:napi",
+			options,
+		);
+	}
+}
+
+/**
  * Raised when `@c9up/sigil/services/main` is used before
  * `SigilProvider.boot()` bound a hasher to it.
  */
