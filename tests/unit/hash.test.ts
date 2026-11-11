@@ -2,12 +2,19 @@ import { describe, expect, it } from "vitest";
 import { Hash } from "../../src/index.js";
 
 describe("sigil > Hash", () => {
-	it("creates a hash instance", () => {
-		const hash = new Hash({
-			default: "scrypt",
-			drivers: { scrypt: { driver: "scrypt" } },
-		});
-		expect(hash).toBeDefined();
+	it("the default hasher is the one `default` names, under either spelling", () => {
+		for (const key of ["list", "drivers"] as const) {
+			const hash = new Hash({
+				default: "scrypt",
+				[key]: { scrypt: { driver: "scrypt" } },
+			});
+			expect(hash.isValidHash("$scrypt$n=16384,r=8,p=1$c2FsdA$aGFzaA")).toBe(
+				true,
+			);
+			expect(hash.isValidHash("$argon2id$v=19$m=65536,t=3,p=4$a$b")).toBe(
+				false,
+			);
+		}
 	});
 
 	it("throws on unknown driver", () => {
@@ -47,9 +54,23 @@ describe("sigil > Hash", () => {
 				scrypt: { driver: "scrypt" },
 			},
 		});
-		expect(hash.use("argon2")).toBeDefined();
-		expect(hash.use("bcrypt")).toBeDefined();
-		expect(hash.use("scrypt")).toBeDefined();
+		const stored = {
+			argon2: "$argon2id$v=19$m=65536,t=3,p=4$a$b",
+			bcrypt: `$2b$12$${"a".repeat(53)}`,
+			scrypt: "$scrypt$n=16384,r=8,p=1$c2FsdA$aGFzaA",
+		};
+		for (const name of ["argon2", "bcrypt", "scrypt"] as const) {
+			const hasher = hash.use(name);
+			// Each name resolves to its own driver: it recognises its own format
+			// and no other.
+			for (const [format, value] of Object.entries(stored)) {
+				expect(hasher.isValidHash(value), `${name} on ${format}`).toBe(
+					format === name,
+				);
+			}
+			// And the hasher is built once per name.
+			expect(hash.use(name)).toBe(hasher);
+		}
 	});
 
 	it("argon2 driver honors custom memoryKib/iterations/parallelism", async () => {
