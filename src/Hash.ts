@@ -22,6 +22,7 @@
  */
 
 import { AssertionError } from "node:assert";
+import { E_SIGIL_UNKNOWN_DRIVER } from "./errors.js";
 import {
 	ARGON2_DEFAULTS,
 	checkEnum,
@@ -445,14 +446,17 @@ class FakeDriver implements HashDriver {
 	}
 }
 
-const driverFactories: Record<
+// A Map, not an object literal: a lookup by a configured name must never
+// reach an inherited member ("constructor", "__proto__", "toString").
+type DriverFactory = (config: Record<string, unknown>) => HashDriver;
+const driverFactories: ReadonlyMap<string, DriverFactory> = new Map<
 	string,
-	(config: Record<string, unknown>) => HashDriver
-> = {
-	argon2: (config) => new Argon2Driver(config),
-	bcrypt: (config) => new BcryptDriver(config),
-	scrypt: (config) => new ScryptDriver(config),
-};
+	DriverFactory
+>([
+	["argon2", (config) => new Argon2Driver(config)],
+	["bcrypt", (config) => new BcryptDriver(config)],
+	["scrypt", (config) => new ScryptDriver(config)],
+]);
 
 /**
  * Per-driver facade — the AdonisJS `Hash` equivalent. Wraps a single
@@ -522,9 +526,18 @@ export class Hash implements HashDriver {
 		// `list` (AdonisJS) and `drivers` (sigil) are the same map under two
 		// names; a config that sets both gets both, last name wins per key.
 		const declared = { ...config.drivers, ...config.list };
+		// NAMED DEVIATION (stricter): upstream a hasher is a factory closure, so
+		// a name with no driver cannot be written. Here the driver
+		// is a string, and a typo would otherwise be skipped and surface only at
+		// the first use() — in production, on the first sign-up.
 		for (const [name, driverConfig] of Object.entries(declared)) {
-			const factory = driverFactories[driverConfig.driver];
-			if (factory) this.#drivers.set(name, factory(driverConfig));
+			const factory = driverFactories.get(driverConfig.driver);
+			if (factory === undefined) {
+				throw new E_SIGIL_UNKNOWN_DRIVER(name, driverConfig.driver, [
+					...driverFactories.keys(),
+				]);
+			}
+			this.#drivers.set(name, factory(driverConfig));
 		}
 	}
 

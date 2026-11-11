@@ -12,6 +12,7 @@
 
 import { describe, expect, it } from "vitest";
 import { drivers } from "../../src/config.js";
+import { SigilError } from "../../src/errors.js";
 import { Hash } from "../../src/Hash.js";
 
 function hasher(driver: string, config: Record<string, unknown> = {}) {
@@ -20,6 +21,44 @@ function hasher(driver: string, config: Record<string, unknown> = {}) {
 		list: { [driver]: { ...config, driver } },
 	});
 }
+
+describe("sigil > an unknown driver name throws at construction", () => {
+	it.each([
+		// A typo used to be skipped, and surfaced only at the first use().
+		"argon",
+		"",
+		// Names an object literal inherits used to resolve to Object.prototype
+		// members: "constructor" stored the config object itself as the driver.
+		"constructor",
+		"__proto__",
+		"toString",
+		"hasOwnProperty",
+	])("%j", (driver) => {
+		let caught: unknown;
+		try {
+			new Hash({ default: "main", list: { main: { driver } } });
+		} catch (error) {
+			caught = error;
+		}
+		expect(caught).toBeInstanceOf(SigilError);
+		expect(caught).toMatchObject({
+			code: "E_SIGIL_UNKNOWN_DRIVER",
+			name: "E_SIGIL_UNKNOWN_DRIVER",
+		});
+		expect(String(caught)).toContain('"main"');
+		expect(String(caught)).toContain("argon2, bcrypt, scrypt");
+	});
+
+	it("checks the older `drivers` spelling too", () => {
+		expect(
+			() =>
+				new Hash({
+					default: "main",
+					drivers: { main: { driver: "constructor" } },
+				}),
+		).toThrow(/E_SIGIL_UNKNOWN_DRIVER/);
+	});
+});
 
 describe("sigil > invalid driver options throw at construction", () => {
 	it.each([

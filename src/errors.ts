@@ -30,3 +30,17 @@ export class E_SIGIL_NOT_BOOTED extends SigilError {
 		);
 	}
 }
+
+/**
+ * Raised at construction for a hasher whose `driver` names no driver sigil
+ * has, so a typo fails at boot rather than at the first hash.
+ */
+export class E_SIGIL_UNKNOWN_DRIVER extends SigilError {
+	constructor(name: string, driver: unknown, known: readonly string[]) {
+		super(
+			"E_SIGIL_UNKNOWN_DRIVER",
+			`[E_SIGIL_UNKNOWN_DRIVER] Hasher "${name}" names driver ${JSON.stringify(driver)}, ` +
+				`which is not one of: ${known.join(", ")}`,
+		);
+	}
+}
