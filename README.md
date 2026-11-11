@@ -2,7 +2,7 @@
 
 > Canonical password hashing for the Ream ecosystem.
 
-Multi-driver password hashing service backed by Rust NAPI. Built on the same model as `@adonisjs/hash` (v9): pluggable drivers, a single `Hash` class, fluent verification.
+Multi-driver password hashing service backed by Rust NAPI: pluggable drivers, a single `Hash` class, fluent verification.
 
 `ream add @c9up/sigil` installs it, registers the provider and writes
 `config/hash.ts`. The rest of this page assumes that has run.
@@ -12,8 +12,8 @@ Multi-driver password hashing service backed by Rust NAPI. Built on the same mod
 | Driver key | Algorithm | When to use |
 |---|---|---|
 | `argon2` *(default)* | argon2id | New applications. Memory-hard, side-channel resistant, OWASP-recommended for password storage. Defaults to **argon2id** (version 19), 64 MiB, 3 iterations, 4 lanes. Tunable via config: `variant`, `memory` (KiB, alias `memoryKib`), `iterations`, `parallelism`, `saltSize`, `hashLength`, and `secret` (a "pepper" not encoded in the hash — verification requires the same secret). |
-| `bcrypt` | bcrypt | Interoperating with legacy systems (Rails, PHP, Java) that already store bcrypt hashes. `rounds` is configurable (default 12, minimum 10, maximum 16). Writes the standard MCF string (`$2b$12$…`), the form every bcrypt implementation reads. Verify also reads the PHC form `$bcrypt$v=98$r=10$<b64 salt>$<b64 digest>` that `@adonisjs/hash` stores; `needsReHash` answers true for it, so such a hash is rewritten as MCF on the user's next login. |
-| `scrypt` | scrypt | Memory-hardness with a different parameter space than argon2. Work factor configurable via config: `cost` (N, default 16384), `blockSize` (r, default 8), `parallelization` (p, default 1), plus `keyLength` (64 to 128), `saltSize`, and `maxMemory` (default 32 MiB), which bounds verify as well as make. Writes the PHC form `$scrypt$n=…,r=…,p=…$<b64 salt>$<b64 hash>`, the one `@adonisjs/hash` writes too, so scrypt hashes verify in both directions. |
+| `bcrypt` | bcrypt | Interoperating with legacy systems (Rails, PHP, Java) that already store bcrypt hashes. `rounds` is configurable (default 12, minimum 10, maximum 16). Writes the standard MCF string (`$2b$12$…`), the form every bcrypt implementation reads. Verify also reads the PHC form `$bcrypt$v=98$r=10$<b64 salt>$<b64 digest>` that other Node.js hashing libraries store; `needsReHash` answers true for it, so such a hash is rewritten as MCF on the user's next login. |
+| `scrypt` | scrypt | Memory-hardness with a different parameter space than argon2. Work factor configurable via config: `cost` (N, default 16384), `blockSize` (r, default 8), `parallelization` (p, default 1), plus `keyLength` (64 to 128), `saltSize`, and `maxMemory` (default 32 MiB), which bounds verify as well as make. Writes the PHC form `$scrypt$n=…,r=…,p=…$<b64 salt>$<b64 hash>`, the one other Node.js hashing libraries write too, so scrypt hashes verify in both directions. |
 
 All drivers run through the dedicated `sigil-engine` Rust crate (the native half of `@c9up/sigil`) — no JavaScript or TypeScript fallback. This is intentional: password hashing must hit a vetted, constant-time native implementation.
 
@@ -59,7 +59,7 @@ const hash = new Hash({
 })
 
 const hashed = await hash.make('correct horse battery staple')
-// verify(hash, value) — hash FIRST, then the plaintext (AdonisJS arg order).
+// verify(hash, value) — hash first, then the plaintext.
 const ok = await hash.verify(hashed, 'correct horse battery staple')
 // ok === true
 ```
@@ -136,7 +136,7 @@ When `SigilProvider` boots without a `config/hash.ts`, the fallback is `argon2` 
 
 Epic 40 declares Sigil the canonical password-hashing package for Ream:
 
-- **Adonis-pattern parity.** Adonis isolates hashing in `@adonisjs/hash`, separate from the framework core. Sigil mirrors that boundary.
+- **Hashing outside the framework core.** Password hashing lives in its own package, separate from the framework core, so it versions and ships on its own.
 - **Single implementation.** Before Sigil, password hashing existed in `@c9up/ream/security/crypto` and (later) in `@c9up/warden`'s internal binding. Two NAPI argon2 implementations in one workspace was duplication waiting for divergence. Sigil consolidates.
 - **Cleaner dependency graph.** Apps that need only password hashing (e.g., a CLI tool) can depend on `@c9up/sigil` alone, without pulling in the full Ream framework.
 
