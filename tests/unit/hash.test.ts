@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { E_SIGIL_NAPI_REQUIRED, Hash } from "../../src/index.js";
+import { Hash } from "../../src/index.js";
 
 describe("sigil > Hash", () => {
 	it("creates a hash instance", () => {
@@ -18,27 +18,11 @@ describe("sigil > Hash", () => {
 		expect(() => hash.use("unknown")).toThrow("not configured");
 	});
 
-	it("drivers either hash via NAPI or throw SIGIL_NAPI_REQUIRED", async () => {
-		// Probe NAPI availability via argon2 (cheapest of the three) and branch
-		// assertions accordingly. The previous version asserted only the
-		// NAPI-absent branch — once the binary lands locally (dev or CI with
-		// the prebuilt artifact wired up), it would fail without surfacing real
-		// information. Story 40.3 added this conditional shape.
-		const probe = new Hash({
-			default: "argon2",
-			drivers: { argon2: { driver: "argon2" } },
-		});
-		let napiLoaded = false;
-		try {
-			await probe.make("probe");
-			napiLoaded = true;
-		} catch (err) {
-			if (
-				!(err instanceof Error && err.message.includes("SIGIL_NAPI_REQUIRED"))
-			)
-				throw err;
-		}
-
+	it("every driver hashes through the engine and verifies its own hash", async () => {
+		// No branch on whether the binary loaded: a missing or rejected engine
+		// must fail this test, not take a path that asserts nothing about
+		// hashing. The refusal itself is pinned in native-guard.test.ts, with
+		// the loader stubbed.
 		const drivers = [
 			{ name: "argon2", config: { driver: "argon2" } },
 			{ name: "bcrypt", config: { driver: "bcrypt", rounds: 10 } },
@@ -47,15 +31,10 @@ describe("sigil > Hash", () => {
 
 		for (const { name, config } of drivers) {
 			const hash = new Hash({ default: name, drivers: { [name]: config } });
-			if (napiLoaded) {
-				const out = await hash.make("test");
-				expect(typeof out).toBe("string");
-				expect(out.length).toBeGreaterThan(0);
-				expect(await hash.verify(out, "test")).toBe(true);
-				expect(await hash.verify(out, "wrong")).toBe(false);
-			} else {
-				await expect(hash.make("test")).rejects.toThrow("SIGIL_NAPI_REQUIRED");
-			}
+			const out = await hash.make("test");
+			expect(hash.isValidHash(out), name).toBe(true);
+			expect(await hash.verify(out, "test"), name).toBe(true);
+			expect(await hash.verify(out, "wrong"), name).toBe(false);
 		}
 	});
 
@@ -73,48 +52,7 @@ describe("sigil > Hash", () => {
 		expect(hash.use("scrypt")).toBeDefined();
 	});
 
-	it("throws E_SIGIL_NAPI_REQUIRED with code field when binary missing", async () => {
-		// Detect the NAPI-absent branch via the same probe technique used above.
-		// If NAPI is loaded locally, this test asserts the typed-Error contract
-		// by forcing requireNative's null path is unreachable — so we skip with
-		// a clear message in that case (the contract is still type-asserted at
-		// construction by the import).
-		const probe = new Hash({
-			default: "argon2",
-			drivers: { argon2: { driver: "argon2" } },
-		});
-		try {
-			await probe.make("probe");
-			// NAPI loaded — instanceof guarantee is asserted by the import + class
-			// declaration; nothing else to assert without monkey-patching `native`.
-			expect(E_SIGIL_NAPI_REQUIRED.prototype).toBeInstanceOf(Error);
-			const synthetic = new E_SIGIL_NAPI_REQUIRED("argon2");
-			expect(synthetic.code).toBe("E_SIGIL_NAPI_REQUIRED");
-			expect(synthetic.name).toBe("E_SIGIL_NAPI_REQUIRED");
-			expect(synthetic.message).toContain("[E_SIGIL_NAPI_REQUIRED]");
-			return;
-		} catch (err) {
-			// NAPI absent — assert the runtime throw is the typed Error.
-			expect(err).toBeInstanceOf(E_SIGIL_NAPI_REQUIRED);
-			expect((err as E_SIGIL_NAPI_REQUIRED).code).toBe("E_SIGIL_NAPI_REQUIRED");
-			expect((err as E_SIGIL_NAPI_REQUIRED).name).toBe("E_SIGIL_NAPI_REQUIRED");
-		}
-	});
-
 	it("argon2 driver honors custom memoryKib/iterations/parallelism", async () => {
-		const probe = new Hash({
-			default: "argon2",
-			drivers: { argon2: { driver: "argon2" } },
-		});
-		let napiLoaded = false;
-		try {
-			await probe.make("probe");
-			napiLoaded = true;
-		} catch {
-			napiLoaded = false;
-		}
-		if (!napiLoaded) return; // NAPI absent — params plumbing has nothing to assert
-
 		const hardened = new Hash({
 			default: "argon2",
 			drivers: {
@@ -149,9 +87,7 @@ describe("sigil > Hash", () => {
 		// Bcrypt silently truncates inputs past 72 bytes — two distinct
 		// passphrases sharing a 72-byte prefix would otherwise hash
 		// identically. The driver must reject 73+ byte inputs before they
-		// reach the Rust binding. 71 and 72 must still be accepted (or
-		// surface SIGIL_NAPI_REQUIRED if the native binary is absent —
-		// either outcome proves the byte-length gate let the call through).
+		// reach the Rust binding. 71 and 72 must still be hashed, and verify.
 		const make = (driver: string) =>
 			new Hash({
 				default: driver,
@@ -160,22 +96,14 @@ describe("sigil > Hash", () => {
 
 		it("accepts 71 bytes", async () => {
 			const hash = make("bcrypt");
-			try {
-				const out = await hash.make("a".repeat(71));
-				expect(typeof out).toBe("string");
-			} catch (err) {
-				expect((err as { code?: string }).code).toBe("E_SIGIL_NAPI_REQUIRED");
-			}
+			const out = await hash.make("a".repeat(71));
+			expect(await hash.verify(out, "a".repeat(71))).toBe(true);
 		});
 
 		it("accepts exactly 72 bytes", async () => {
 			const hash = make("bcrypt");
-			try {
-				const out = await hash.make("a".repeat(72));
-				expect(typeof out).toBe("string");
-			} catch (err) {
-				expect((err as { code?: string }).code).toBe("E_SIGIL_NAPI_REQUIRED");
-			}
+			const out = await hash.make("a".repeat(72));
+			expect(await hash.verify(out, "a".repeat(72))).toBe(true);
 		});
 
 		it("rejects 73 bytes with a bcrypt-specific message", async () => {
@@ -185,13 +113,8 @@ describe("sigil > Hash", () => {
 
 		it("argon2 accepts the same 73-byte input that bcrypt rejects", async () => {
 			const hash = make("argon2");
-			try {
-				const out = await hash.make("a".repeat(73));
-				expect(typeof out).toBe("string");
-			} catch (err) {
-				// Native missing is OK — proves the size gate let it through
-				expect((err as { code?: string }).code).toBe("E_SIGIL_NAPI_REQUIRED");
-			}
+			const out = await hash.make("a".repeat(73));
+			expect(await hash.verify(out, "a".repeat(73))).toBe(true);
 		});
 	});
 
@@ -333,13 +256,10 @@ describe("sigil > Hash", () => {
 				expect(await h.make("secret")).toBe("secret");
 			}
 			// After dispose, the fake is gone — argon2 no longer returns identity.
-			try {
-				const out = await h.make("secret");
-				expect(out).not.toBe("secret");
-				expect(out.startsWith("$argon2")).toBe(true);
-			} catch (err) {
-				expect((err as { code?: string }).code).toBe("E_SIGIL_NAPI_REQUIRED");
-			}
+			const out = await h.make("secret");
+			expect(out).not.toBe("secret");
+			expect(out.startsWith("$argon2id$")).toBe(true);
+			expect(await h.verify(out, "secret")).toBe(true);
 		});
 	});
 
@@ -395,22 +315,8 @@ describe("sigil > Hash", () => {
 		});
 	});
 
-	describe("argon2 secret (pepper) + memory alias (native-gated)", () => {
-		const napi = async (): Promise<boolean> => {
-			const probe = new Hash({
-				default: "argon2",
-				drivers: { argon2: { driver: "argon2" } },
-			});
-			try {
-				await probe.make("probe");
-				return true;
-			} catch {
-				return false;
-			}
-		};
-
+	describe("argon2 secret (pepper) + memory alias", () => {
 		it("a peppered hash only verifies with the same secret", async () => {
-			if (!(await napi())) return;
 			const withSecret = new Hash({
 				default: "argon2",
 				drivers: { argon2: { driver: "argon2", secret: "pepper-key" } },
@@ -431,7 +337,6 @@ describe("sigil > Hash", () => {
 		});
 
 		it("`memory` (Adonis name) drives the encoded param like `memoryKib`", async () => {
-			if (!(await napi())) return;
 			const h = new Hash({
 				default: "argon2",
 				drivers: {
@@ -447,16 +352,7 @@ describe("sigil > Hash", () => {
 		});
 	});
 
-	describe("scrypt configurable work factor (native-gated)", () => {
-		const napi = async (h: Hash): Promise<boolean> => {
-			try {
-				await h.make("probe");
-				return true;
-			} catch {
-				return false;
-			}
-		};
-
+	describe("scrypt configurable work factor", () => {
 		it("honors cost/blockSize/parallelization and round-trips", async () => {
 			const h = new Hash({
 				default: "scrypt",
@@ -469,7 +365,6 @@ describe("sigil > Hash", () => {
 					},
 				},
 			});
-			if (!(await napi(h))) return;
 			const out = await h.make("password");
 			expect(out.startsWith("$scrypt$n=1024,r=8,p=2$")).toBe(true);
 			expect(await h.verify(out, "password")).toBe(true);
