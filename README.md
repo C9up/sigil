@@ -42,9 +42,7 @@ Sigil requires its native binding to be present at runtime. If the `.node` artif
 
 The `argon2` token in the message is interpolated with the failing driver name (`argon2` / `bcrypt` / `scrypt`).
 
-> The `pnpm build:napi` script is wired in story 40.4. Until then, build the native binding manually with `cargo build --release -p sigil-engine` from the package root.
-
-Story 40.4 will harden runtime detection and ship prebuilt binaries via the same CI matrix as Ream and Atlas (linux-x64-gnu, linux-arm64-gnu, darwin-x64, darwin-arm64, win32-x64-msvc), so a fresh `pnpm install` will resolve the binding without a local Rust toolchain.
+The published package ships prebuilt binaries for linux-x64-gnu, linux-arm64-gnu, darwin-x64, darwin-arm64 and win32-x64-msvc, so an install needs no Rust toolchain. Build it locally with `pnpm build:napi` from the package root.
 
 ## Quick start
 
@@ -132,7 +130,7 @@ export default defineConfig({
 })
 ```
 
-When `SigilProvider` boots without a `config/hash.ts`, the fallback is `argon2` with the recommended defaults — see Story 40.1's `SigilProvider` fix.
+When `SigilProvider` boots without a `config/hash.ts`, the fallback is `argon2` with the recommended defaults.
 
 ## Why Sigil and not `@c9up/ream`?
 
@@ -180,11 +178,7 @@ In a Ream application, prefer the container-resolved `Hash` (see Quick start) ov
 ## Status
 
 - argon2id, bcrypt, scrypt drivers — shipping.
-- README + module docs (this story 40.1).
-- Warden integration — story 40.3.
-- NAPI binary CI matrix — story 40.4.
-
-> Story 40.2 (originally scoped as "ream/crypto delegates to Sigil") is being re-evaluated: 40.1 deleted the throwing stubs in `@c9up/ream/security/crypto.ts` outright since they were never deployed, so there is no facade to wire. Note this is independent from `@c9up/warden`'s duplicate argon2 path, which story 40.3 still addresses.
+- Prebuilt native binaries for the five platforms listed above — shipping.
 
 ## License
 
