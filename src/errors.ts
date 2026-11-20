@@ -60,3 +60,20 @@ export class E_SIGIL_UNKNOWN_DRIVER extends SigilError {
 		);
 	}
 }
+
+/**
+ * Raised when a hasher name is not declared in the config: a `default` naming
+ * none of them (at construction, so the boot fails like an unknown driver
+ * does), or `use(name)` for an undeclared name.
+ */
+export class E_SIGIL_UNKNOWN_HASHER extends SigilError {
+	constructor(name: string, declared: readonly string[]) {
+		super(
+			"E_SIGIL_UNKNOWN_HASHER",
+			`[E_SIGIL_UNKNOWN_HASHER] No hasher named ${JSON.stringify(name)} is declared in the hash config. ` +
+				(declared.length === 0
+					? "The config declares none."
+					: `Declared: ${declared.join(", ")}`),
+		);
+	}
+}

@@ -22,7 +22,11 @@
  */
 
 import { AssertionError } from "node:assert";
-import { E_SIGIL_NAPI_REQUIRED, E_SIGIL_UNKNOWN_DRIVER } from "./errors.js";
+import {
+	E_SIGIL_NAPI_REQUIRED,
+	E_SIGIL_UNKNOWN_DRIVER,
+	E_SIGIL_UNKNOWN_HASHER,
+} from "./errors.js";
 import {
 	ARGON2_DEFAULTS,
 	checkEnum,
@@ -586,6 +590,15 @@ export class Hash implements HashDriver {
 			}
 			this.#drivers.set(name, factory(driverConfig));
 		}
+		// NAMED DEVIATION (stricter), same reason: upstream types `default` as
+		// one of the list's keys, so a stray name does not compile. Here it is
+		// a string — often `env.get('HASH_DRIVER')` — and would boot cleanly,
+		// then fail the first sign-up.
+		if (!this.#drivers.has(config.default)) {
+			throw new E_SIGIL_UNKNOWN_HASHER(config.default, [
+				...this.#drivers.keys(),
+			]);
+		}
 	}
 
 	/** The configuration this manager was built from (AdonisJS `HashManager.config`). */
@@ -626,7 +639,9 @@ export class Hash implements HashDriver {
 		const cached = this.#hashers.get(n);
 		if (cached) return cached;
 		const driver = this.#drivers.get(n);
-		if (!driver) throw new Error(`Hash driver '${n}' not configured`);
+		if (!driver) {
+			throw new E_SIGIL_UNKNOWN_HASHER(n, [...this.#drivers.keys()]);
+		}
 		const hasher = new Hasher(driver);
 		this.#hashers.set(n, hasher);
 		return hasher;

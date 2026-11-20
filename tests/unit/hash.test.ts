@@ -17,12 +17,12 @@ describe("sigil > Hash", () => {
 		}
 	});
 
-	it("throws on unknown driver", () => {
+	it("refuses a hasher name the config does not declare", () => {
 		const hash = new Hash({
-			default: "unknown",
-			drivers: {},
+			default: "argon2",
+			drivers: { argon2: { driver: "argon2" } },
 		});
-		expect(() => hash.use("unknown")).toThrow("not configured");
+		expect(() => hash.use("unknown")).toThrow(/E_SIGIL_UNKNOWN_HASHER/);
 	});
 
 	it("every driver hashes through the engine and verifies its own hash", async () => {

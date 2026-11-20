@@ -201,3 +201,45 @@ describe("sigil > the argon2 secret is not readable on the hasher", () => {
 		expect(config.list.argon2.secret).toBe(PEPPER);
 	});
 });
+
+describe("sigil > a default naming no declared hasher throws at construction", () => {
+	it.each([
+		["bcrypt", { argon2: { driver: "argon2" } }],
+		["", { argon2: { driver: "argon2" } }],
+		["constructor", { argon2: { driver: "argon2" } }],
+		["argon2", {}],
+	])("default %j", (name, list) => {
+		let caught: unknown;
+		try {
+			new Hash({ default: name, list });
+		} catch (error) {
+			caught = error;
+		}
+		expect(caught).toBeInstanceOf(SigilError);
+		expect(caught).toMatchObject({
+			code: "E_SIGIL_UNKNOWN_HASHER",
+			name: "E_SIGIL_UNKNOWN_HASHER",
+		});
+		expect(String(caught)).toContain(JSON.stringify(name));
+	});
+
+	it("use() of an undeclared name throws the same coded error", () => {
+		const hash = hasher("argon2");
+		let caught: unknown;
+		try {
+			hash.use("nope");
+		} catch (error) {
+			caught = error;
+		}
+		expect(caught).toBeInstanceOf(SigilError);
+		expect(caught).toMatchObject({ code: "E_SIGIL_UNKNOWN_HASHER" });
+		expect(String(caught)).toContain('"nope"');
+		expect(String(caught)).toContain("argon2");
+	});
+
+	it("fake() still answers any name", async () => {
+		const hash = hasher("argon2");
+		using _guard = hash.fake();
+		expect(await hash.use("nope").make("x")).toBe("x");
+	});
+});
