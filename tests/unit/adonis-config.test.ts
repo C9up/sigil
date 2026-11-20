@@ -34,7 +34,9 @@ describe("sigil > AdonisJS config shape", () => {
 			default: "scrypt",
 			list: { scrypt: drivers.scrypt({ cost: 16384 }) },
 		});
-		expect(new Hash(config).config).toBe(config);
+		// A copy (secrets redacted, see config-validation.test.ts), equal to
+		// the config it was built from when there is no secret in it.
+		expect(new Hash(config).config).toEqual(config);
 	});
 
 	it("carries each helper's settings through to the driver name", () => {

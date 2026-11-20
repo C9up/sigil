@@ -132,6 +132,62 @@ function releaseSecret(secret: unknown): string {
 	);
 }
 
+const REDACTED = "[redacted]";
+
+/**
+ * The argon2 pepper as the manager's public `config` carries it: released to
+ * the driver, `[redacted]` to JSON.stringify, String() and util.inspect. The
+ * pepper is the one value whose leak, next to a database dump, defeats it, and
+ * a hasher ends up in log lines and error reports.
+ */
+class RedactedSecret {
+	readonly #value: unknown;
+
+	constructor(value: unknown) {
+		this.#value = value;
+	}
+
+	release(): string {
+		return releaseSecret(this.#value);
+	}
+
+	toJSON(): string {
+		return REDACTED;
+	}
+
+	toString(): string {
+		return REDACTED;
+	}
+
+	[Symbol.for("nodejs.util.inspect.custom")](): string {
+		return REDACTED;
+	}
+}
+
+/** A hasher list whose `secret` entries are wrapped in {@link RedactedSecret}. */
+function redactedList(
+	list: Record<string, HashDriverConfig>,
+): Record<string, HashDriverConfig> {
+	// fromEntries defines own properties, so a hasher named "__proto__" stays
+	// a hasher instead of becoming the copy's prototype.
+	return Object.fromEntries(
+		Object.entries(list).map(([name, entry]): [string, HashDriverConfig] => [
+			name,
+			entry.secret === undefined
+				? entry
+				: { ...entry, secret: new RedactedSecret(entry.secret) },
+		]),
+	);
+}
+
+/** The caller's config, copied with every secret redacted. */
+function redactedConfig(config: HashConfig): HashConfig {
+	const copy: HashConfig = { ...config };
+	if (config.list !== undefined) copy.list = redactedList(config.list);
+	if (config.drivers !== undefined) copy.drivers = redactedList(config.drivers);
+	return copy;
+}
+
 class Argon2Driver implements HashDriver {
 	#options: Readonly<Argon2NativeOptions>;
 	#variant: "d" | "i" | "id";
@@ -510,10 +566,13 @@ export class Hash implements HashDriver {
 
 	constructor(config: HashConfig) {
 		this.#defaultDriver = config.default;
-		this.config = config;
+		// A copy, not the caller's object: every argon2 `secret` in it is
+		// wrapped so that logging or serialising the hasher cannot print the
+		// pepper. The drivers are built from the copy and release it there.
+		this.config = redactedConfig(config);
 		// `list` (AdonisJS) and `drivers` (sigil) are the same map under two
 		// names; a config that sets both gets both, last name wins per key.
-		const declared = { ...config.drivers, ...config.list };
+		const declared = { ...this.config.drivers, ...this.config.list };
 		// NAMED DEVIATION (stricter): upstream a hasher is a factory closure, so
 		// a name with no driver cannot be written. Here the driver
 		// is a string, and a typo would otherwise be skipped and surface only at

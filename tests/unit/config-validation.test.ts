@@ -10,6 +10,7 @@
  * account created under it could never log in again, and nothing errored.
  */
 
+import { inspect } from "node:util";
 import { describe, expect, it } from "vitest";
 import { drivers } from "../../src/config.js";
 import { SigilError } from "../../src/errors.js";
@@ -160,5 +161,43 @@ describe("sigil > argon2 secret (pepper) in the config type", () => {
 		// The released value is the pepper, not the redacted placeholder.
 		const made = await fromSecret.make("hunter2");
 		expect(await fromString.verify(made, "hunter2")).toBe(true);
+	});
+});
+
+describe("sigil > the argon2 secret is not readable on the hasher", () => {
+	const PEPPER = "PEPPER-s3cr3t-value";
+
+	it.each(["list", "drivers"] as const)(
+		"neither JSON.stringify nor util.inspect prints it (`%s`)",
+		async (key) => {
+			const hash = new Hash({
+				default: "argon2",
+				[key]: { argon2: drivers.argon2({ secret: PEPPER }) },
+			});
+			expect(JSON.stringify(hash)).not.toContain("PEPPER");
+			expect(JSON.stringify(hash.config)).not.toContain("PEPPER");
+			expect(inspect(hash, { depth: 10 })).not.toContain("PEPPER");
+			expect(inspect(hash.config, { depth: 10 })).not.toContain("PEPPER");
+			expect(String(hash.config[key]?.argon2?.secret)).not.toContain("PEPPER");
+
+			// The pepper still applies: a hash made with it does not verify
+			// under a hasher without it.
+			const made = await hash.make("hunter2");
+			expect(await hash.verify(made, "hunter2")).toBe(true);
+			const plain = new Hash({
+				default: "argon2",
+				list: { argon2: drivers.argon2() },
+			});
+			expect(await plain.verify(made, "hunter2")).toBe(false);
+		},
+	);
+
+	it("leaves the caller's config object untouched", () => {
+		const config = {
+			default: "argon2",
+			list: { argon2: drivers.argon2({ secret: PEPPER }) },
+		};
+		new Hash(config);
+		expect(config.list.argon2.secret).toBe(PEPPER);
 	});
 });
