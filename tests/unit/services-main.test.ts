@@ -56,9 +56,11 @@ describe("services/main before boot", () => {
 		});
 		setHash(bound);
 		expect(hash.config).toBe(bound.config);
-		expect(hash.isValidHash("$scrypt$n=16384,r=8,p=1$c2FsdA$aGFzaA")).toBe(
-			true,
-		);
+		expect(
+			hash.isValidHash(
+				"$scrypt$n=16384,r=8,p=1$iILKD1gVSx6bqualYqyLBQ$DNzIISdmTQS6sFdQ1tJ3UCZ7Uun4uGHNjj0x8FHOqB0pf2LYsu9Xaj5MFhHg21qBz8l5q/oxpeV+ZkgTAj+OzQ",
+			),
+		).toBe(true);
 		// The singleton itself still is not thenable once a hasher is bound.
 		expect(Reflect.get(hash, "then")).toBeUndefined();
 	});

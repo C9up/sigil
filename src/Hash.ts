@@ -192,6 +192,54 @@ function redactedConfig(config: HashConfig): HashConfig {
 	return copy;
 }
 
+/**
+ * Longest string isValidHash parses: a scrypt hash at its largest (1024-byte
+ * salt, 128-byte key) fits with room to spare.
+ */
+const MAX_HASH_LENGTH = 2048;
+
+/**
+ * The bytes of an unpadded standard-base64 PHC field, or null when it is not
+ * the canonical encoding — the engine's decoders refuse padding and stray
+ * trailing bits, so such a field never verifies.
+ */
+function decodePhcBase64(value: string): Buffer | null {
+	if (!/^[A-Za-z0-9+/]*$/.test(value) || value.length % 4 === 1) return null;
+	const bytes = Buffer.from(value, "base64");
+	return bytes.toString("base64").replace(/=+$/, "") === value ? bytes : null;
+}
+
+/**
+ * A PHC parameter segment (`m=65536,t=3,p=4`, any order) holding exactly
+ * `keys`, each once, each a decimal integer within uint32. Null otherwise.
+ */
+function phcParams(
+	segment: string,
+	keys: readonly string[],
+): Map<string, number> | null {
+	const params = new Map<string, number>();
+	for (const pair of segment.split(",")) {
+		const match = /^([a-z]+)=(\d{1,10})$/.exec(pair);
+		if (match === null) return null;
+		const key = match[1];
+		const value = Number(match[2]);
+		if (key === undefined || !keys.includes(key) || params.has(key)) {
+			return null;
+		}
+		if (value > MAX_UINT32) return null;
+		params.set(key, value);
+	}
+	return params.size === keys.length ? params : null;
+}
+
+/** Whether a decoded PHC field exists and its length is within `range`. */
+function lengthWithin(
+	bytes: Buffer | null,
+	[min, max]: readonly [number, number],
+): boolean {
+	return bytes !== null && bytes.length >= min && bytes.length <= max;
+}
+
 class Argon2Driver implements HashDriver {
 	#options: Readonly<Argon2NativeOptions>;
 	#variant: "d" | "i" | "id";
@@ -249,8 +297,46 @@ class Argon2Driver implements HashDriver {
 		this.#options = Object.freeze(opts);
 	}
 
+	/**
+	 * True only for a hash verify can check: `$argon2{id,i,d}$[v=16|19$]`
+	 * then exactly m, t and p (any order) within the ranges the engine
+	 * accepts — p 1..2^24-1, t ≥ 1, m ≥ 8p, m*t within the verify work cap —
+	 * then a canonical base64 salt of 8-48 bytes and output of 10-64 bytes
+	 * (the PHC parser's bounds). No version reads as 16, as upstream does.
+	 */
 	isValidHash(hash: string): boolean {
-		return /^\$argon2(id|i|d)\$/.test(hash);
+		if (hash.length > MAX_HASH_LENGTH) return false;
+		const fields = hash.split("$");
+		if (fields[0] !== "" || !/^argon2(?:id|i|d)$/.test(fields[1] ?? "")) {
+			return false;
+		}
+		let rest = fields.slice(2);
+		if (rest.length === 4) {
+			if (rest[0] !== "v=16" && rest[0] !== "v=19") return false;
+			rest = rest.slice(1);
+		}
+		if (rest.length !== 3) return false;
+		const params = phcParams(rest[0] ?? "", ["m", "t", "p"]);
+		const memory = params?.get("m");
+		const iterations = params?.get("t");
+		const parallelism = params?.get("p");
+		if (
+			memory === undefined ||
+			iterations === undefined ||
+			parallelism === undefined
+		) {
+			return false;
+		}
+		if (parallelism < 1 || parallelism > MAX_UINT24 || iterations < 1) {
+			return false;
+		}
+		if (memory < 8 * parallelism || memory * iterations > MAX_ARGON2_WORK) {
+			return false;
+		}
+		return (
+			lengthWithin(decodePhcBase64(rest[1] ?? ""), [8, 48]) &&
+			lengthWithin(decodePhcBase64(rest[2] ?? ""), [10, 64])
+		);
 	}
 
 	async make(value: string): Promise<string> {
@@ -439,8 +525,40 @@ class ScryptDriver implements HashDriver {
 		this.#options = Object.freeze(opts);
 	}
 
+	/**
+	 * True only for a hash verify can check: `$scrypt$` then exactly n, r and p
+	 * (any order), n a power of two ≥ 2, r and p ≥ 1, n*r*p within the verify
+	 * work cap and the working set within this driver's `maxMemory`, then a
+	 * canonical base64 salt of 8-1024 bytes and key of 64-128 bytes — the
+	 * checks the engine's verify makes before deriving.
+	 */
 	isValidHash(hash: string): boolean {
-		return /^\$scrypt\$n=\d+,r=\d+,p=\d+\$/.test(hash);
+		if (hash.length > MAX_HASH_LENGTH) return false;
+		const fields = hash.split("$");
+		if (fields.length !== 5 || fields[0] !== "" || fields[1] !== "scrypt") {
+			return false;
+		}
+		const params = phcParams(fields[2] ?? "", ["n", "r", "p"]);
+		const cost = params?.get("n");
+		const blockSize = params?.get("r");
+		const parallelization = params?.get("p");
+		if (
+			cost === undefined ||
+			blockSize === undefined ||
+			parallelization === undefined
+		) {
+			return false;
+		}
+		if (cost < 2 || !Number.isInteger(Math.log2(cost))) return false;
+		if (blockSize < 1 || parallelization < 1) return false;
+		if (cost * blockSize * parallelization > MAX_SCRYPT_WORK) return false;
+		if (scryptMemory(cost, blockSize, parallelization) > this.#maxMemory) {
+			return false;
+		}
+		return (
+			lengthWithin(decodePhcBase64(fields[3] ?? ""), [8, 1024]) &&
+			lengthWithin(decodePhcBase64(fields[4] ?? ""), [64, 128])
+		);
 	}
 
 	async make(value: string): Promise<string> {

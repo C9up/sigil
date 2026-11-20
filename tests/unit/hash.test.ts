@@ -8,12 +8,16 @@ describe("sigil > Hash", () => {
 				default: "scrypt",
 				[key]: { scrypt: { driver: "scrypt" } },
 			});
-			expect(hash.isValidHash("$scrypt$n=16384,r=8,p=1$c2FsdA$aGFzaA")).toBe(
-				true,
-			);
-			expect(hash.isValidHash("$argon2id$v=19$m=65536,t=3,p=4$a$b")).toBe(
-				false,
-			);
+			expect(
+				hash.isValidHash(
+					"$scrypt$n=16384,r=8,p=1$iILKD1gVSx6bqualYqyLBQ$DNzIISdmTQS6sFdQ1tJ3UCZ7Uun4uGHNjj0x8FHOqB0pf2LYsu9Xaj5MFhHg21qBz8l5q/oxpeV+ZkgTAj+OzQ",
+				),
+			).toBe(true);
+			expect(
+				hash.isValidHash(
+					"$argon2id$v=19$t=3,m=4096,p=1$drxJBWzWahR5tMubp+a1Sw$L/Oh2uw6QKW77i/KQ8eGuOt3ui52hEmmKlu1KBVBxiM",
+				),
+			).toBe(false);
 		}
 	});
 
@@ -55,9 +59,11 @@ describe("sigil > Hash", () => {
 			},
 		});
 		const stored = {
-			argon2: "$argon2id$v=19$m=65536,t=3,p=4$a$b",
+			argon2:
+				"$argon2id$v=19$t=3,m=4096,p=1$drxJBWzWahR5tMubp+a1Sw$L/Oh2uw6QKW77i/KQ8eGuOt3ui52hEmmKlu1KBVBxiM",
 			bcrypt: `$2b$12$${"a".repeat(53)}`,
-			scrypt: "$scrypt$n=16384,r=8,p=1$c2FsdA$aGFzaA",
+			scrypt:
+				"$scrypt$n=16384,r=8,p=1$iILKD1gVSx6bqualYqyLBQ$DNzIISdmTQS6sFdQ1tJ3UCZ7Uun4uGHNjj0x8FHOqB0pf2LYsu9Xaj5MFhHg21qBz8l5q/oxpeV+ZkgTAj+OzQ",
 		};
 		for (const name of ["argon2", "bcrypt", "scrypt"] as const) {
 			const hasher = hash.use(name);
@@ -220,12 +226,18 @@ describe("sigil > Hash", () => {
 		const make = (driver: string) =>
 			new Hash({ default: driver, drivers: { [driver]: { driver } } });
 
-		it("argon2 accepts $argon2(id|i|d)$ and rejects others", () => {
+		it("argon2 accepts $argon2(id|i|d)$ hashes and rejects others", () => {
 			const h = make("argon2");
-			expect(h.isValidHash("$argon2id$v=19$m=65536,t=3,p=4$abc$def")).toBe(
-				true,
-			);
-			expect(h.isValidHash("$argon2i$v=19$m=65536,t=3,p=4$abc$def")).toBe(true);
+			expect(
+				h.isValidHash(
+					"$argon2id$v=19$t=3,m=4096,p=1$drxJBWzWahR5tMubp+a1Sw$L/Oh2uw6QKW77i/KQ8eGuOt3ui52hEmmKlu1KBVBxiM",
+				),
+			).toBe(true);
+			expect(
+				h.isValidHash(
+					"$argon2i$v=19$t=3,m=4096,p=1$drxJBWzWahR5tMubp+a1Sw$L/Oh2uw6QKW77i/KQ8eGuOt3ui52hEmmKlu1KBVBxiM",
+				),
+			).toBe(true);
 			expect(h.isValidHash(`$2b$12$${"x".repeat(53)}`)).toBe(false);
 			expect(h.isValidHash("plain")).toBe(false);
 		});
@@ -239,7 +251,11 @@ describe("sigil > Hash", () => {
 
 		it("scrypt accepts the PHC $scrypt$n=...,r=...,p=...$ form", () => {
 			const h = make("scrypt");
-			expect(h.isValidHash("$scrypt$n=16384,r=8,p=1$abc$def")).toBe(true);
+			expect(
+				h.isValidHash(
+					"$scrypt$n=16384,r=8,p=1$iILKD1gVSx6bqualYqyLBQ$DNzIISdmTQS6sFdQ1tJ3UCZ7Uun4uGHNjj0x8FHOqB0pf2LYsu9Xaj5MFhHg21qBz8l5q/oxpeV+ZkgTAj+OzQ",
+				),
+			).toBe(true);
 			expect(h.isValidHash("scrypt$ln=14$r=8$p=1$aa$bb")).toBe(false);
 			expect(h.isValidHash("nope")).toBe(false);
 		});
@@ -415,5 +431,97 @@ describe("sigil > Hash", () => {
 					}),
 			).toThrow(/maxMemory/);
 		});
+	});
+});
+
+/**
+ * isValidHash answers "could verify check this string?" — not "does it start
+ * like one". A prefix match let `$argon2id$garbage` pass as a stored hash, so
+ * an application deciding whether to hash a value before saving it stored an
+ * unverifiable string instead.
+ */
+describe("sigil > isValidHash checks the whole hash", () => {
+	const b64 = (bytes: number): string =>
+		Buffer.alloc(bytes, 7).toString("base64").replace(/=+$/, "");
+	const make = (driver: string, config: Record<string, unknown> = {}) =>
+		new Hash({ default: driver, list: { [driver]: { ...config, driver } } });
+
+	// Upstream's own documented examples (@adonisjs/hash 10.1.1).
+	const UPSTREAM_ARGON2 =
+		"$argon2id$v=19$t=3,m=4096,p=1$drxJBWzWahR5tMubp+a1Sw$L/Oh2uw6QKW77i/KQ8eGuOt3ui52hEmmKlu1KBVBxiM";
+	const UPSTREAM_SCRYPT =
+		"$scrypt$n=16384,r=8,p=1$iILKD1gVSx6bqualYqyLBQ$DNzIISdmTQS6sFdQ1tJ3UCZ7Uun4uGHNjj0x8FHOqB0pf2LYsu9Xaj5MFhHg21qBz8l5q/oxpeV+ZkgTAj+OzQ";
+
+	it("argon2: accepts real hashes, refuses malformed ones", async () => {
+		const h = make("argon2");
+		expect(h.isValidHash(await h.make("x"))).toBe(true);
+		expect(h.isValidHash(UPSTREAM_ARGON2)).toBe(true);
+		const ok = `$argon2id$v=19$m=65536,t=3,p=4$${b64(16)}$${b64(32)}`;
+		expect(h.isValidHash(ok)).toBe(true);
+		// No version: upstream reads it as 16.
+		expect(
+			h.isValidHash(`$argon2i$m=65536,t=3,p=4$${b64(16)}$${b64(32)}`),
+		).toBe(true);
+		for (const bad of [
+			"$argon2id$garbage",
+			"$argon2id$",
+			`$argon2x$v=19$m=65536,t=3,p=4$${b64(16)}$${b64(32)}`,
+			`$argon2id$v=18$m=65536,t=3,p=4$${b64(16)}$${b64(32)}`,
+			`$argon2id$v=19$m=65536,t=3$${b64(16)}$${b64(32)}`,
+			`$argon2id$v=19$m=65536,t=3,p=4,p=4$${b64(16)}$${b64(32)}`,
+			`$argon2id$v=19$m=65536,t=3,p=4,x=1$${b64(16)}$${b64(32)}`,
+			`$argon2id$v=19$m=65536,t=0,p=4$${b64(16)}$${b64(32)}`,
+			`$argon2id$v=19$m=65536,t=3,p=0$${b64(16)}$${b64(32)}`,
+			// m below 8 * p.
+			`$argon2id$v=19$m=16,t=3,p=4$${b64(16)}$${b64(32)}`,
+			// m * t above the work verify accepts.
+			`$argon2id$v=19$m=1048576,t=3,p=4$${b64(16)}$${b64(32)}`,
+			`$argon2id$v=19$m=65536,t=3,p=4$${b64(7)}$${b64(32)}`,
+			`$argon2id$v=19$m=65536,t=3,p=4$${b64(49)}$${b64(32)}`,
+			`$argon2id$v=19$m=65536,t=3,p=4$${b64(16)}$${b64(9)}`,
+			`$argon2id$v=19$m=65536,t=3,p=4$${b64(16)}$${b64(65)}`,
+			`$argon2id$v=19$m=65536,t=3,p=4$${b64(16)}`,
+			`$argon2id$v=19$m=65536,t=3,p=4$${b64(16)}$${b64(32)}$`,
+			`$argon2id$v=19$m=65536,t=3,p=4$${b64(16)}==$${b64(32)}`,
+			`$argon2id$v=19$m=65536,t=3,p=4$${b64(16)}$${b64(32)}\n`,
+		]) {
+			expect(h.isValidHash(bad), bad).toBe(false);
+		}
+	});
+
+	it("scrypt: accepts real hashes, refuses malformed ones", async () => {
+		const h = make("scrypt");
+		expect(h.isValidHash(await h.make("x"))).toBe(true);
+		expect(h.isValidHash(UPSTREAM_SCRYPT)).toBe(true);
+		expect(
+			h.isValidHash(`$scrypt$n=16384,r=8,p=1$${b64(16)}$${b64(128)}`),
+		).toBe(true);
+		for (const bad of [
+			"$scrypt$n=1,r=1,p=1$",
+			"$scrypt$n=16384,r=8,p=1$c2FsdA$aGFzaA",
+			`$scrypt$n=16383,r=8,p=1$${b64(16)}$${b64(64)}`,
+			`$scrypt$n=1,r=8,p=1$${b64(16)}$${b64(64)}`,
+			`$scrypt$n=16384,r=0,p=1$${b64(16)}$${b64(64)}`,
+			`$scrypt$n=16384,r=8,p=0$${b64(16)}$${b64(64)}`,
+			`$scrypt$n=16384,r=8$${b64(16)}$${b64(64)}`,
+			`$scrypt$n=16384,r=8,p=1,x=1$${b64(16)}$${b64(64)}`,
+			// N * r * p above the work verify accepts.
+			`$scrypt$n=1048576,r=8,p=1$${b64(16)}$${b64(64)}`,
+			`$scrypt$n=16384,r=8,p=1$${b64(7)}$${b64(64)}`,
+			`$scrypt$n=16384,r=8,p=1$${b64(16)}$${b64(63)}`,
+			`$scrypt$n=16384,r=8,p=1$${b64(16)}$${b64(129)}`,
+			`$scrypt$n=16384,r=8,p=1$${b64(16)}$`,
+			`$scrypt$n=16384,r=8,p=1$${b64(16)}$${b64(64)}$x`,
+		]) {
+			expect(h.isValidHash(bad), bad).toBe(false);
+		}
+	});
+
+	it("scrypt: a hash whose working set exceeds maxMemory is not one verify checks", () => {
+		const hash = `$scrypt$n=65536,r=8,p=1$${b64(16)}$${b64(64)}`;
+		expect(
+			make("scrypt", { maxMemory: 128 * 1024 * 1024 }).isValidHash(hash),
+		).toBe(true);
+		expect(make("scrypt").isValidHash(hash)).toBe(false);
 	});
 });

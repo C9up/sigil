@@ -132,9 +132,15 @@ describe("sigil > without an engine, every driver refuses", () => {
 	// A well-formed stored hash per driver, so verify reaches the engine
 	// instead of answering false on the format check.
 	it.each([
-		["argon2", "$argon2id$v=19$m=65536,t=3,p=4$c2FsdHNhbHQ$aGFzaGhhc2g"],
+		[
+			"argon2",
+			"$argon2id$v=19$t=3,m=4096,p=1$drxJBWzWahR5tMubp+a1Sw$L/Oh2uw6QKW77i/KQ8eGuOt3ui52hEmmKlu1KBVBxiM",
+		],
 		["bcrypt", `$2b$10$${"a".repeat(53)}`],
-		["scrypt", "$scrypt$n=16384,r=8,p=1$c2FsdA$aGFzaA"],
+		[
+			"scrypt",
+			"$scrypt$n=16384,r=8,p=1$iILKD1gVSx6bqualYqyLBQ$DNzIISdmTQS6sFdQ1tJ3UCZ7Uun4uGHNjj0x8FHOqB0pf2LYsu9Xaj5MFhHg21qBz8l5q/oxpeV+ZkgTAj+OzQ",
+		],
 	])(
 		"%s rejects make and verify with E_SIGIL_NAPI_REQUIRED",
 		async (driver, stored) => {
