@@ -13,7 +13,7 @@
 import { inspect } from "node:util";
 import { describe, expect, it } from "vitest";
 import { drivers } from "../../src/config.js";
-import { SigilError } from "../../src/errors.js";
+import * as errors from "../../src/errors.js";
 import { Hash } from "../../src/Hash.js";
 
 function hasher(driver: string, config: Record<string, unknown> = {}) {
@@ -41,11 +41,8 @@ describe("sigil > an unknown driver name throws at construction", () => {
 		} catch (error) {
 			caught = error;
 		}
-		expect(caught).toBeInstanceOf(SigilError);
-		expect(caught).toMatchObject({
-			code: "E_SIGIL_UNKNOWN_DRIVER",
-			name: "E_SIGIL_UNKNOWN_DRIVER",
-		});
+		expect(caught).toBeInstanceOf(errors.E_SIGIL_UNKNOWN_DRIVER);
+		expect(caught).toMatchObject({ code: "E_SIGIL_UNKNOWN_DRIVER" });
 		expect(String(caught)).toContain('"main"');
 		expect(String(caught)).toContain("argon2, bcrypt, scrypt");
 	});
@@ -92,6 +89,14 @@ describe("sigil > invalid driver options throw at construction", () => {
 		["scrypt", { cost: 32768 }, /maxMemory/],
 	])("%s %j", (driver, config, message) => {
 		expect(() => hasher(driver, config)).toThrow(message);
+		let caught: unknown;
+		try {
+			hasher(driver, config);
+		} catch (error) {
+			caught = error;
+		}
+		expect(caught).toBeInstanceOf(errors.E_SIGIL_INVALID_OPTION);
+		expect(caught).toMatchObject({ code: "E_SIGIL_INVALID_OPTION" });
 	});
 
 	it("accepts every bcrypt version it can verify", async () => {
@@ -215,11 +220,8 @@ describe("sigil > a default naming no declared hasher throws at construction", (
 		} catch (error) {
 			caught = error;
 		}
-		expect(caught).toBeInstanceOf(SigilError);
-		expect(caught).toMatchObject({
-			code: "E_SIGIL_UNKNOWN_HASHER",
-			name: "E_SIGIL_UNKNOWN_HASHER",
-		});
+		expect(caught).toBeInstanceOf(errors.E_SIGIL_UNKNOWN_HASHER);
+		expect(caught).toMatchObject({ code: "E_SIGIL_UNKNOWN_HASHER" });
 		expect(String(caught)).toContain(JSON.stringify(name));
 	});
 
@@ -231,7 +233,7 @@ describe("sigil > a default naming no declared hasher throws at construction", (
 		} catch (error) {
 			caught = error;
 		}
-		expect(caught).toBeInstanceOf(SigilError);
+		expect(caught).toBeInstanceOf(errors.E_SIGIL_UNKNOWN_HASHER);
 		expect(caught).toMatchObject({ code: "E_SIGIL_UNKNOWN_HASHER" });
 		expect(String(caught)).toContain('"nope"');
 		expect(String(caught)).toContain("argon2");

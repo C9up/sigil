@@ -1,79 +1,72 @@
 /**
- * Sigil errors.
- *
- * Every error sigil raises on its own carries an `E_SIGIL_*` code, so a caller
- * branches on `error.code` rather than on a message, and catches every one of
- * them by the base class.
+ * Sigil errors, one per code. A caller branches on `error.code` or on
+ * `error instanceof errors.E_SIGIL_*`.
  */
 
-/** Base class, so a caller can catch every sigil error by one name. */
-export class SigilError extends Error {
-	readonly code: string;
-
-	constructor(code: string, message: string, options?: ErrorOptions) {
-		super(message, options);
-		this.name = new.target.name;
-		this.code = code;
-	}
-}
+import { createError } from "@c9up/flare";
 
 /**
  * Raised when a driver is used without the Rust engine loaded: the binary is
  * missing, fails to load, or lacks a call sigil makes. Hashing goes through
  * the engine or does not happen; there is no weaker fallback.
  */
-export class E_SIGIL_NAPI_REQUIRED extends SigilError {
-	constructor(driver: string, options?: ErrorOptions) {
-		super(
-			"E_SIGIL_NAPI_REQUIRED",
-			`[E_SIGIL_NAPI_REQUIRED] The ${driver} Rust engine is required but not loaded.\n` +
-				"  Fix: cd packages/sigil && pnpm build:napi",
-			options,
-		);
-	}
-}
+export const E_SIGIL_NAPI_REQUIRED = createError<[driver: string]>(
+	"[E_SIGIL_NAPI_REQUIRED] The %s Rust engine is required but not loaded.\n" +
+		"  Fix: cd packages/sigil && pnpm build:napi",
+	"E_SIGIL_NAPI_REQUIRED",
+);
 
 /**
  * Raised when `@c9up/sigil/services/main` is used before
  * `SigilProvider.boot()` bound a hasher to it.
  */
-export class E_SIGIL_NOT_BOOTED extends SigilError {
-	constructor(member: string) {
-		super(
-			"E_SIGIL_NOT_BOOTED",
-			`[E_SIGIL_NOT_BOOTED] hash.${member} used before SigilProvider.boot() ran. ` +
-				"Check that `@c9up/sigil/provider` is listed in your reamrc.ts providers.",
-		);
-	}
-}
+export const E_SIGIL_NOT_BOOTED = createError<[member: string]>(
+	"[E_SIGIL_NOT_BOOTED] hash.%s used before SigilProvider.boot() ran. " +
+		"Check that `@c9up/sigil/provider` is listed in your reamrc.ts providers.",
+	"E_SIGIL_NOT_BOOTED",
+);
 
 /**
  * Raised at construction for a hasher whose `driver` names no driver sigil
  * has, so a typo fails at boot rather than at the first hash.
  */
-export class E_SIGIL_UNKNOWN_DRIVER extends SigilError {
-	constructor(name: string, driver: unknown, known: readonly string[]) {
-		super(
-			"E_SIGIL_UNKNOWN_DRIVER",
-			`[E_SIGIL_UNKNOWN_DRIVER] Hasher "${name}" names driver ${JSON.stringify(driver)}, ` +
-				`which is not one of: ${known.join(", ")}`,
-		);
-	}
-}
+export const E_SIGIL_UNKNOWN_DRIVER = createError<
+	[name: string, driver: unknown, known: string]
+>(
+	'[E_SIGIL_UNKNOWN_DRIVER] Hasher "%s" names driver %j, which is not one of: %s',
+	"E_SIGIL_UNKNOWN_DRIVER",
+);
 
 /**
  * Raised when a hasher name is not declared in the config: a `default` naming
  * none of them (at construction, so the boot fails like an unknown driver
- * does), or `use(name)` for an undeclared name.
+ * does), or `use(name)` for an undeclared name. The last value lists the
+ * declared names, or says there are none.
  */
-export class E_SIGIL_UNKNOWN_HASHER extends SigilError {
-	constructor(name: string, declared: readonly string[]) {
-		super(
-			"E_SIGIL_UNKNOWN_HASHER",
-			`[E_SIGIL_UNKNOWN_HASHER] No hasher named ${JSON.stringify(name)} is declared in the hash config. ` +
-				(declared.length === 0
-					? "The config declares none."
-					: `Declared: ${declared.join(", ")}`),
-		);
-	}
-}
+export const E_SIGIL_UNKNOWN_HASHER = createError<
+	[name: string, declared: string]
+>(
+	"[E_SIGIL_UNKNOWN_HASHER] No hasher named %j is declared in the hash config. %s",
+	"E_SIGIL_UNKNOWN_HASHER",
+);
+
+/**
+ * Raised when a driver is built with an option it cannot use: not an integer,
+ * out of range, not one of the allowed values, a scrypt `cost` that is not a
+ * power of two, or options whose combined work exceeds what `verify` accepts.
+ * The site builds the message, which names the option.
+ */
+export const E_SIGIL_INVALID_OPTION = createError<[message: string]>(
+	"%s",
+	"E_SIGIL_INVALID_OPTION",
+);
+
+/**
+ * Raised by `make` for a password longer than the driver accepts: the
+ * shared byte cap every driver enforces, or bcrypt's own 72-byte limit.
+ * The site builds the message, which names the limit.
+ */
+export const E_SIGIL_PASSWORD_TOO_LONG = createError<[message: string]>(
+	"%s",
+	"E_SIGIL_PASSWORD_TOO_LONG",
+);

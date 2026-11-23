@@ -161,12 +161,8 @@ describe("sigil > without an engine, every driver refuses", () => {
 					() => undefined,
 					(error: unknown) => error,
 				);
-				expect(refusal).toBeInstanceOf(sigil.E_SIGIL_NAPI_REQUIRED);
-				expect(refusal).toBeInstanceOf(sigil.SigilError);
-				expect(refusal).toMatchObject({
-					code: "E_SIGIL_NAPI_REQUIRED",
-					name: "E_SIGIL_NAPI_REQUIRED",
-				});
+				expect(refusal).toBeInstanceOf(sigil.errors.E_SIGIL_NAPI_REQUIRED);
+				expect(refusal).toMatchObject({ code: "E_SIGIL_NAPI_REQUIRED" });
 				expect(String(refusal)).toContain(
 					`[E_SIGIL_NAPI_REQUIRED] The ${driver} Rust engine`,
 				);

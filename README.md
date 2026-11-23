@@ -112,7 +112,7 @@ export default defineConfig({
 })
 ```
 
-Honored config keys. Every value is validated when the driver is built — at boot — and a value out of range or of the wrong type (`rounds: '12'` read from an environment variable) throws a `TypeError` there rather than at the first hash:
+Honored config keys. Every value is validated when the driver is built — at boot — and a value out of range or of the wrong type (`rounds: '12'` read from an environment variable) throws `E_SIGIL_INVALID_OPTION` there rather than at the first hash:
 
 - `argon2` — `variant` (`'id'` default, `'i'`, `'d'`), `memory` (KiB, default 65536, at least 8 × `parallelism`), `iterations` (default 3, at least 2), `parallelism` (default 4), `saltSize` (8 to 48, default 16), `hashLength` (10 to 64, default 32), and `secret` (keyed hashing: a string, or a `Secret` such as `env.get('APP_KEY')` returns).
 - `bcrypt` — `rounds` (10 to 16, default 12), `version` (`97` for `$2a$`, `98` for `$2b$` — the default — or `121` for `$2y$`), `saltSize` (16 only: the algorithm fixes it).
@@ -170,10 +170,7 @@ In a Ream application, prefer the container-resolved `Hash` (see Quick start) ov
 | `HashConfig` | type | `{ default: string; list: Record<string, { driver: string; ...}> }` (`drivers` is the older spelling of `list`). |
 | `defineConfig` | helper | Type-safe config authoring. |
 | `SigilProvider` | provider | Registers `Hash` (and the `'hash'` token) in the Ream container. Imported via `@c9up/sigil/provider`. |
-| `SigilError` | class | Base of every error sigil raises; `error.code` is the `E_SIGIL_*` name of the subclass. |
-| `E_SIGIL_NAPI_REQUIRED` | class | A driver ran without the native engine loaded. |
-| `E_SIGIL_UNKNOWN_DRIVER` | class | A hasher in the config names a driver sigil does not have; thrown when `Hash` is built. |
-| `E_SIGIL_NOT_BOOTED` | class | `@c9up/sigil/services/main` used before `SigilProvider` booted. |
+| `errors` | namespace | The package's errors, one class per `E_SIGIL_*` code (`errors.E_SIGIL_NAPI_REQUIRED`, `errors.E_SIGIL_UNKNOWN_DRIVER`, ...); each is a `@c9up/flare` `Exception`. |
 
 ## Status
 

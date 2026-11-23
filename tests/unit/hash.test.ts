@@ -107,6 +107,9 @@ describe("sigil > Hash", () => {
 			});
 			const longPassword = "a".repeat(2000);
 			await expect(hash.make(longPassword)).rejects.toThrow("maximum length");
+			await expect(hash.make(longPassword)).rejects.toMatchObject({
+				code: "E_SIGIL_PASSWORD_TOO_LONG",
+			});
 		}
 	});
 
@@ -136,6 +139,9 @@ describe("sigil > Hash", () => {
 		it("rejects 73 bytes with a bcrypt-specific message", async () => {
 			const hash = make("bcrypt");
 			await expect(hash.make("a".repeat(73))).rejects.toThrow(/Bcrypt/);
+			await expect(hash.make("a".repeat(73))).rejects.toMatchObject({
+				code: "E_SIGIL_PASSWORD_TOO_LONG",
+			});
 		});
 
 		it("argon2 accepts the same 73-byte input that bcrypt rejects", async () => {

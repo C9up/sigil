@@ -7,13 +7,7 @@ export type {
 	ScryptOptions,
 } from "./config.js";
 export { defineConfig, drivers } from "./config.js";
-export {
-	E_SIGIL_NAPI_REQUIRED,
-	E_SIGIL_NOT_BOOTED,
-	E_SIGIL_UNKNOWN_DRIVER,
-	E_SIGIL_UNKNOWN_HASHER,
-	SigilError,
-} from "./errors.js";
+export * as errors from "./errors.js";
 export type { HashConfig, HashDriver, HashDriverConfig } from "./Hash.js";
 /**
  * `Hash` is the multi-driver manager; `Hasher` wraps one driver.

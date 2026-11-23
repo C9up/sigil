@@ -9,6 +9,7 @@
 
 import { inspect } from "node:util";
 import { beforeEach, describe, expect, it } from "vitest";
+import * as errors from "../../src/errors.js";
 import { Hash } from "../../src/Hash.js";
 import hash, { clearHash, setHash } from "../../src/services/main.js";
 
@@ -42,11 +43,8 @@ describe("services/main before boot", () => {
 		} catch (error) {
 			caught = error;
 		}
-		expect(caught).toBeInstanceOf(Error);
-		expect(caught).toMatchObject({
-			code: "E_SIGIL_NOT_BOOTED",
-			name: "E_SIGIL_NOT_BOOTED",
-		});
+		expect(caught).toBeInstanceOf(errors.E_SIGIL_NOT_BOOTED);
+		expect(caught).toMatchObject({ code: "E_SIGIL_NOT_BOOTED" });
 	});
 
 	it("forwards to the bound instance once booted", () => {

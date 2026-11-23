@@ -106,6 +106,9 @@ describe("sigil > a configuration above the caps fails at construction", () => {
 		expect(() => hasher("argon2", { memory: 2 ** 19, iterations: 3 })).toThrow(
 			/must not exceed/,
 		);
+		expect(() => hasher("argon2", { memory: 2 ** 19, iterations: 3 })).toThrow(
+			expect.objectContaining({ code: "E_SIGIL_INVALID_OPTION" }),
+		);
 		// A partial config is checked against the defaults it inherits.
 		expect(() => hasher("argon2", { iterations: 20 })).toThrow(
 			/must not exceed/,
@@ -125,6 +128,13 @@ describe("sigil > a configuration above the caps fails at construction", () => {
 				maxMemory: 2 ** 32 - 1,
 			}),
 		).toThrow(/must not exceed/);
+		expect(() =>
+			hasher("scrypt", {
+				cost: 2 ** 20,
+				blockSize: 8,
+				maxMemory: 2 ** 32 - 1,
+			}),
+		).toThrow(expect.objectContaining({ code: "E_SIGIL_INVALID_OPTION" }));
 	});
 });
 

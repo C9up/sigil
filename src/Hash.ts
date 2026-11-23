@@ -23,7 +23,9 @@
 
 import { AssertionError } from "node:assert";
 import {
+	E_SIGIL_INVALID_OPTION,
 	E_SIGIL_NAPI_REQUIRED,
+	E_SIGIL_PASSWORD_TOO_LONG,
 	E_SIGIL_UNKNOWN_DRIVER,
 	E_SIGIL_UNKNOWN_HASHER,
 } from "./errors.js";
@@ -109,8 +111,15 @@ async function ensureNative(): Promise<void> {
 	await loadNative();
 }
 
+/** The declared hasher names, as `E_SIGIL_UNKNOWN_HASHER` lists them. */
+function declaredHashers(declared: readonly string[]): string {
+	return declared.length === 0
+		? "The config declares none."
+		: `Declared: ${declared.join(", ")}`;
+}
+
 function requireNative<T>(result: T | null, driver: string): T {
-	if (result === null) throw new E_SIGIL_NAPI_REQUIRED(driver);
+	if (result === null) throw new E_SIGIL_NAPI_REQUIRED([driver]);
 	return result;
 }
 
@@ -131,9 +140,9 @@ function releaseSecret(secret: unknown): string {
 			if (typeof released === "string") return released;
 		}
 	}
-	throw new TypeError(
+	throw new E_SIGIL_INVALID_OPTION([
 		`The "secret" option must be a string or a Secret wrapping one`,
-	);
+	]);
 }
 
 const REDACTED = "[redacted]";
@@ -272,9 +281,9 @@ class Argon2Driver implements HashDriver {
 			[8 * this.#parallelism, MAX_UINT32],
 		);
 		if (this.#memory * this.#iterations > MAX_ARGON2_WORK) {
-			throw new TypeError(
+			throw new E_SIGIL_INVALID_OPTION([
 				`The "memory" * "iterations" options must not exceed ${MAX_ARGON2_WORK} (got ${this.#memory} * ${this.#iterations}): verify refuses a hash costing more`,
-			);
+			]);
 		}
 		const opts: Argon2NativeOptions = {
 			memoryKib: this.#memory,
@@ -341,9 +350,9 @@ class Argon2Driver implements HashDriver {
 
 	async make(value: string): Promise<string> {
 		if (Buffer.byteLength(value, "utf8") > MAX_PASSWORD_BYTES) {
-			throw new Error(
+			throw new E_SIGIL_PASSWORD_TOO_LONG([
 				`Password exceeds maximum length of ${MAX_PASSWORD_BYTES} bytes`,
-			);
+			]);
 		}
 		await ensureNative();
 		return await requireNative(argon2Hash(value, this.#options), "argon2");
@@ -423,14 +432,14 @@ class BcryptDriver implements HashDriver {
 	async make(value: string): Promise<string> {
 		const bytes = Buffer.byteLength(value, "utf8");
 		if (bytes > MAX_PASSWORD_BYTES) {
-			throw new Error(
+			throw new E_SIGIL_PASSWORD_TOO_LONG([
 				`Password exceeds maximum length of ${MAX_PASSWORD_BYTES} bytes`,
-			);
+			]);
 		}
 		if (bytes > BCRYPT_MAX_BYTES) {
-			throw new Error(
+			throw new E_SIGIL_PASSWORD_TOO_LONG([
 				`Bcrypt cannot hash inputs longer than ${BCRYPT_MAX_BYTES} bytes (got ${bytes}); use argon2id for long passphrases`,
-			);
+			]);
 		}
 		await ensureNative();
 		return await requireNative(
@@ -487,7 +496,9 @@ class ScryptDriver implements HashDriver {
 		this.#cost = integerOption(config, "cost", [2, MAX_UINT32]) ?? 16384;
 		// Node's crypto.scrypt refuses any other N too, but only at hash time.
 		if (!Number.isInteger(Math.log2(this.#cost))) {
-			throw new TypeError(`The "cost" option must be a power of two`);
+			throw new E_SIGIL_INVALID_OPTION([
+				`The "cost" option must be a power of two`,
+			]);
 		}
 		this.#parallelization =
 			integerOption(config, "parallelization", [
@@ -496,9 +507,9 @@ class ScryptDriver implements HashDriver {
 			]) ?? 1;
 		const work = this.#cost * this.#blockSize * this.#parallelization;
 		if (work > MAX_SCRYPT_WORK) {
-			throw new TypeError(
+			throw new E_SIGIL_INVALID_OPTION([
 				`The "cost" * "blockSize" * "parallelization" options must not exceed ${MAX_SCRYPT_WORK} (got ${work}): verify refuses a hash costing more`,
-			);
+			]);
 		}
 		// The working set is `128 * r * (N + p + 2)` bytes; upstream accepts a
 		// smaller maxMemory here and only fails at the first hash.
@@ -563,9 +574,9 @@ class ScryptDriver implements HashDriver {
 
 	async make(value: string): Promise<string> {
 		if (Buffer.byteLength(value, "utf8") > MAX_PASSWORD_BYTES) {
-			throw new Error(
+			throw new E_SIGIL_PASSWORD_TOO_LONG([
 				`Password exceeds maximum length of ${MAX_PASSWORD_BYTES} bytes`,
-			);
+			]);
 		}
 		await ensureNative();
 		return await requireNative(scryptHash(value, this.#options), "scrypt");
@@ -702,8 +713,10 @@ export class Hash implements HashDriver {
 		for (const [name, driverConfig] of Object.entries(declared)) {
 			const factory = driverFactories.get(driverConfig.driver);
 			if (factory === undefined) {
-				throw new E_SIGIL_UNKNOWN_DRIVER(name, driverConfig.driver, [
-					...driverFactories.keys(),
+				throw new E_SIGIL_UNKNOWN_DRIVER([
+					name,
+					driverConfig.driver,
+					[...driverFactories.keys()].join(", "),
 				]);
 			}
 			this.#drivers.set(name, factory(driverConfig));
@@ -713,8 +726,9 @@ export class Hash implements HashDriver {
 		// a string — often `env.get('HASH_DRIVER')` — and would boot cleanly,
 		// then fail the first sign-up.
 		if (!this.#drivers.has(config.default)) {
-			throw new E_SIGIL_UNKNOWN_HASHER(config.default, [
-				...this.#drivers.keys(),
+			throw new E_SIGIL_UNKNOWN_HASHER([
+				config.default,
+				declaredHashers([...this.#drivers.keys()]),
 			]);
 		}
 	}
@@ -758,7 +772,10 @@ export class Hash implements HashDriver {
 		if (cached) return cached;
 		const driver = this.#drivers.get(n);
 		if (!driver) {
-			throw new E_SIGIL_UNKNOWN_HASHER(n, [...this.#drivers.keys()]);
+			throw new E_SIGIL_UNKNOWN_HASHER([
+				n,
+				declaredHashers([...this.#drivers.keys()]),
+			]);
 		}
 		const hasher = new Hasher(driver);
 		this.#hashers.set(n, hasher);

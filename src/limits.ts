@@ -14,6 +14,8 @@
  * test holds these numbers to the engine's.
  */
 
+import { E_SIGIL_INVALID_OPTION } from "./errors.js";
+
 export const MAX_UINT32 = 2 ** 32 - 1;
 export const MAX_UINT24 = 2 ** 24 - 1;
 
@@ -51,19 +53,21 @@ export function scryptMemory(
 	return 128 * blockSize * (cost + p + 2);
 }
 
-/** `value` as an integer within `[min, max]`, or a TypeError naming `label`. */
+/** `value` as an integer within `[min, max]`, or an `E_SIGIL_INVALID_OPTION` naming `label`. */
 export function checkInteger(
 	label: string,
 	value: unknown,
 	[min, max]: readonly [number, number],
 ): number {
 	if (typeof value !== "number" || !Number.isInteger(value)) {
-		throw new TypeError(`The "${label}" option must be an integer`);
+		throw new E_SIGIL_INVALID_OPTION([
+			`The "${label}" option must be an integer`,
+		]);
 	}
 	if (value < min || value > max) {
-		throw new TypeError(
+		throw new E_SIGIL_INVALID_OPTION([
 			`The "${label}" option must be in the range (${min} <= ${label} <= ${max})`,
-		);
+		]);
 	}
 	return value;
 }
@@ -78,7 +82,7 @@ export function integerOption(
 	return value === undefined ? undefined : checkInteger(key, value, range);
 }
 
-/** `value` if it is one of `allowed`, or a TypeError naming `label`. */
+/** `value` if it is one of `allowed`, or an `E_SIGIL_INVALID_OPTION` naming `label`. */
 export function checkEnum<T>(
 	label: string,
 	value: unknown,
@@ -86,9 +90,9 @@ export function checkEnum<T>(
 ): T {
 	const match = allowed.find((candidate) => candidate === value);
 	if (match === undefined) {
-		throw new TypeError(
+		throw new E_SIGIL_INVALID_OPTION([
 			`The "${label}" option must be one of: ${allowed.join(",")}`,
-		);
+		]);
 	}
 	return match;
 }

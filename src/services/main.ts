@@ -50,7 +50,7 @@ const hash: Hash = new Proxy(target, {
 		if (typeof prop === "symbol" || prop === "then") {
 			return undefined;
 		}
-		if (!instance) throw new E_SIGIL_NOT_BOOTED(prop);
+		if (!instance) throw new E_SIGIL_NOT_BOOTED([prop]);
 		const value = Reflect.get(instance, prop, instance);
 		return typeof value === "function" ? value.bind(instance) : value;
 	},
