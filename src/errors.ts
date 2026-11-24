@@ -8,11 +8,12 @@ import { createError } from "@c9up/flare";
 /**
  * Raised when a driver is used without the Rust engine loaded: the binary is
  * missing, fails to load, or lacks a call sigil makes. Hashing goes through
- * the engine or does not happen; there is no weaker fallback.
+ * the engine or does not happen; there is no weaker fallback. The message
+ * names the platform package to install; the load error is its `cause`.
  */
-export const E_SIGIL_NAPI_REQUIRED = createError<[driver: string]>(
+export const E_SIGIL_NAPI_REQUIRED = createError<[driver: string, fix: string]>(
 	"[E_SIGIL_NAPI_REQUIRED] The %s Rust engine is required but not loaded.\n" +
-		"  Fix: cd packages/sigil && pnpm build:napi",
+		"  Fix: %s",
 	"E_SIGIL_NAPI_REQUIRED",
 );
 

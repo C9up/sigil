@@ -33,16 +33,28 @@ The same limits apply to the configuration: a driver configured above them throw
 
 ## NAPI binding requirement
 
-Sigil requires its native binding to be present at runtime. If the `.node` artifact is missing, the first call to `make()` / `verify()` throws `E_SIGIL_NAPI_REQUIRED` (`error.code === 'E_SIGIL_NAPI_REQUIRED'`):
+Sigil hashes through its Rust engine only. Each platform's engine is its own npm package, which `@c9up/sigil` lists as an optional dependency at its exact version:
+
+| Platform | Package |
+|---|---|
+| Linux x64 (glibc) | `@c9up/sigil-linux-x64-gnu` |
+| Linux arm64 (glibc) | `@c9up/sigil-linux-arm64-gnu` |
+| macOS x64 | `@c9up/sigil-darwin-x64` |
+| macOS arm64 | `@c9up/sigil-darwin-arm64` |
+| Windows x64 | `@c9up/sigil-win32-x64-msvc` |
+
+Your package manager installs only the one that matches the machine (`os`, `cpu` and `libc` fields), so an install downloads one binary and needs no Rust toolchain. An install run with optional dependencies omitted (`--no-optional`, `--omit=optional`) skips it.
+
+If the engine is missing, the first call to `make()` / `verify()` throws `E_SIGIL_NAPI_REQUIRED` (`error.code === 'E_SIGIL_NAPI_REQUIRED'`), naming the package to install:
 
 ```text
 [E_SIGIL_NAPI_REQUIRED] The argon2 Rust engine is required but not loaded.
-  Fix: cd packages/sigil && pnpm build:napi
+  Fix: install @c9up/sigil-linux-x64-gnu at the exact version of @c9up/sigil: ...
 ```
 
-The `argon2` token in the message is interpolated with the failing driver name (`argon2` / `bcrypt` / `scrypt`).
+The `argon2` token is the failing driver (`argon2` / `bcrypt` / `scrypt`). The load error itself is the exception's `cause`.
 
-The published package ships prebuilt binaries for linux-x64-gnu, linux-arm64-gnu, darwin-x64, darwin-arm64 and win32-x64-msvc, so an install needs no Rust toolchain. Build it locally with `pnpm build:napi` from the package root.
+In a checkout of this repository, `pnpm build:napi` builds `index.<platform>.node` at the package root, and sigil loads that file before looking for the platform package. `node scripts/platform-packages.mjs` rewrites the platform packages' manifests (`npm/<platform>/package.json`) and the optional dependencies after a version bump; CI fails when they are stale.
 
 ## Quick start
 
@@ -175,7 +187,7 @@ In a Ream application, prefer the container-resolved `Hash` (see Quick start) ov
 ## Status
 
 - argon2id, bcrypt, scrypt drivers — shipping.
-- Prebuilt native binaries for the five platforms listed above — shipping.
+- Prebuilt native binaries for the five platforms listed above, one npm package each — shipping.
 
 ## License
 

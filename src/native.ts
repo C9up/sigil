@@ -1,4 +1,16 @@
-import { hasFunctions, loadNativeBinary } from "./vendor/nativeBinary.js";
+import { arch, platform } from "node:process";
+import {
+	hasFunctions,
+	loadNativeBinary,
+	muslHint,
+	supportedTargets,
+} from "./vendor/nativeBinary.js";
+
+/**
+ * The npm name the platform packages derive from: `@c9up/sigil-<suffix>`,
+ * one per target, each an optional dependency pinned to this version.
+ */
+const PACKAGE_NAME = "@c9up/sigil";
 
 export interface Argon2NativeOptions {
 	memoryKib?: number;
@@ -59,6 +71,10 @@ function isNativeSigil(value: unknown): value is NativeSigil {
 
 let native: NativeSigil | null = null;
 let attempted = false;
+/** Why the engine is not loaded, kept for the refusal that follows. */
+let failure: { fix: string; cause?: unknown } = {
+	fix: "the engine has not been loaded: sigil loads it on the first hash or verify.",
+};
 
 export async function loadNative(): Promise<void> {
 	// Cache both success (`native !== null`) and failure (`attempted === true`).
@@ -68,8 +84,49 @@ export async function loadNative(): Promise<void> {
 	attempted = true;
 	// `attempted` keeps a second call O(1): a missing binary would otherwise
 	// send the OS looking for it on every hash.
-	const attempt = loadNativeBinary(isNativeSigil, NATIVE_CALLS);
-	if (attempt.loaded) native = attempt.binary;
+	const attempt = loadNativeBinary(isNativeSigil, NATIVE_CALLS, {
+		packageName: PACKAGE_NAME,
+	});
+	if (attempt.loaded) {
+		native = attempt.binary;
+		return;
+	}
+	failure = {
+		fix: remedy(attempt.suffix, attempt.platformPackage),
+		cause: attempt.cause,
+	};
+}
+
+/**
+ * What to do about a missing engine, phrased for whoever has to fix it.
+ *
+ * An application installs the platform package; a checkout of sigil builds
+ * the local binary. The load error itself is not in here: it names paths on
+ * the host, so it travels as the refusal's `cause` instead of its message.
+ */
+function remedy(
+	suffix: string | undefined,
+	platformPackage: string | undefined,
+): string {
+	if (suffix === undefined) {
+		return `no prebuilt binary for ${platform}-${arch}; sigil ships one for ${supportedTargets().join(", ")}.`;
+	}
+	if (platformPackage === undefined) {
+		return `index.${suffix}.node failed to load. Rebuild it: cd packages/sigil && pnpm build:napi`;
+	}
+	return (
+		`install ${platformPackage} at the exact version of ${PACKAGE_NAME}: it is the optional dependency that carries the ${suffix} binary, ` +
+		"and an install that omits optional dependencies skips it. " +
+		`In a checkout of sigil, build it instead: pnpm build:napi.${muslHint()}`
+	);
+}
+
+/**
+ * Why the engine is not loaded: the fix to print and the load error, if any.
+ * Only meaningful while `isNativeLoaded()` is false.
+ */
+export function nativeUnavailable(): { fix: string; cause?: unknown } {
+	return failure;
 }
 
 export function isNativeLoaded(): boolean {

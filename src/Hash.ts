@@ -51,6 +51,7 @@ import {
 	bcryptVerify,
 	isNativeLoaded,
 	loadNative,
+	nativeUnavailable,
 	type ScryptNativeOptions,
 	scryptHash,
 	scryptVerify,
@@ -119,8 +120,9 @@ function declaredHashers(declared: readonly string[]): string {
 }
 
 function requireNative<T>(result: T | null, driver: string): T {
-	if (result === null) throw new E_SIGIL_NAPI_REQUIRED([driver]);
-	return result;
+	if (result !== null) return result;
+	const why = nativeUnavailable();
+	throw new E_SIGIL_NAPI_REQUIRED([driver, why.fix], { cause: why.cause });
 }
 
 const ARGON2_VARIANTS: readonly ("d" | "i" | "id")[] = ["d", "i", "id"];

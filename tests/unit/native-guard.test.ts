@@ -40,13 +40,16 @@ function withBinary(binary: unknown) {
 	return withRequire(() => binary);
 }
 
-/** Load sigil with `require` running `load` for the `.node` file. */
-async function withRequire(load: () => unknown) {
+/** Load sigil with `require` running `load` for every module it asks for. */
+async function withRequire(
+	load: (id: string) => unknown,
+	host: { platform: string; arch: string } = HOST,
+) {
 	vi.resetModules();
 	vi.doMock("node:process", async (importOriginal) => ({
 		...(await importOriginal<typeof import("node:process")>()),
-		platform: HOST.platform,
-		arch: HOST.arch,
+		platform: host.platform,
+		arch: host.arch,
 	}));
 	vi.doMock("node:module", async (importOriginal) => ({
 		...(await importOriginal<typeof import("node:module")>()),
@@ -169,4 +172,150 @@ describe("sigil > without an engine, every driver refuses", () => {
 			}
 		},
 	);
+});
+
+/** What `require` throws for a module that is not there. */
+function notFound(id: string): Error {
+	return Object.assign(new Error(`Cannot find module '${id}'`), {
+		code: "MODULE_NOT_FOUND",
+	});
+}
+
+/** The platform package this host installs. */
+const PLATFORM_PACKAGE = `@c9up/sigil-${HOST.suffix}`;
+
+/** What `make` rejects with, or `undefined` when it resolves. */
+async function refusalOf(sigil: typeof import("../../src/index.js")) {
+	const hash = new sigil.Hash({
+		default: "bcrypt",
+		list: { bcrypt: { driver: "bcrypt" } },
+	});
+	return hash.make("secret").then(
+		() => undefined,
+		(error: unknown) => error,
+	);
+}
+
+describe("sigil > the engine comes from the local build or the platform package", () => {
+	it("loads the platform package when no local binary is built", async () => {
+		const asked: string[] = [];
+		const { native } = await withRequire((id) => {
+			asked.push(id);
+			if (id === PLATFORM_PACKAGE) return standIn();
+			throw notFound(id);
+		});
+		await native.loadNative();
+
+		expect(native.isNativeLoaded()).toBe(true);
+		expect(asked).toHaveLength(2);
+		expect(asked[0]).toMatch(/[\\/]index\.linux-x64-gnu\.node$/);
+		expect(asked[1]).toBe(PLATFORM_PACKAGE);
+	});
+
+	it("prefers the local build, and never asks for the package then", async () => {
+		const asked: string[] = [];
+		const { native } = await withRequire((id) => {
+			asked.push(id);
+			return standIn();
+		});
+		await native.loadNative();
+
+		expect(native.isNativeLoaded()).toBe(true);
+		expect(asked).toHaveLength(1);
+		expect(asked[0]).toMatch(/index\.linux-x64-gnu\.node$/);
+	});
+
+	it("names the platform package to install when neither is there", async () => {
+		const { sigil } = await withRequire((id) => {
+			throw notFound(id);
+		});
+
+		const refusal = await refusalOf(sigil);
+
+		expect(refusal).toBeInstanceOf(sigil.errors.E_SIGIL_NAPI_REQUIRED);
+		expect(String(refusal)).toContain(
+			`Fix: install ${PLATFORM_PACKAGE} at the exact version of @c9up/sigil`,
+		);
+		expect(String(refusal)).toContain("pnpm build:napi");
+		// The load error travels as the cause, not in the message.
+		expect(refusal).toMatchObject({
+			cause: { code: "MODULE_NOT_FOUND" },
+		});
+		expect(String(refusal)).not.toContain("Cannot find module");
+	});
+
+	it("reports a local build that fails to load, instead of falling back to the package", async () => {
+		const asked: string[] = [];
+		const { sigil } = await withRequire((id) => {
+			asked.push(id);
+			throw new Error("invalid ELF header");
+		});
+
+		const refusal = await refusalOf(sigil);
+
+		expect(asked).toHaveLength(1);
+		expect(String(refusal)).toContain(
+			"Fix: index.linux-x64-gnu.node failed to load. Rebuild it",
+		);
+		expect(refusal).toMatchObject({
+			cause: { message: "invalid ELF header" },
+		});
+	});
+
+	it("rejects a platform package from another version, naming it", async () => {
+		const { native, vendor } = await withRequire((id) => {
+			if (id === PLATFORM_PACKAGE) return standIn("scryptVerify");
+			throw notFound(id);
+		});
+		await native.loadNative();
+
+		expect(native.isNativeLoaded()).toBe(false);
+		const attempt = vendor.loadNativeBinary(
+			(value): value is object => vendor.hasFunctions(value, CALLS),
+			CALLS,
+			{ packageName: "@c9up/sigil" },
+		);
+		expect(attempt.loaded).toBe(false);
+		if (attempt.loaded) return;
+		expect(attempt.platformPackage).toBe(PLATFORM_PACKAGE);
+		expect(String(attempt.cause)).toContain(
+			`${PLATFORM_PACKAGE} loaded, but it lacks scryptVerify. The binary is stale or from another version: install the version the package that loads it pins.`,
+		);
+	});
+
+	it("looks only at the local file when the package names no platform packages", async () => {
+		const asked: string[] = [];
+		const { vendor } = await withRequire((id) => {
+			asked.push(id);
+			throw notFound(id);
+		});
+
+		const attempt = vendor.loadNativeBinary(
+			(value): value is object => vendor.hasFunctions(value, CALLS),
+			CALLS,
+		);
+
+		expect(attempt.loaded).toBe(false);
+		expect(asked).toHaveLength(1);
+		if (attempt.loaded) return;
+		expect(attempt.platformPackage).toBeUndefined();
+	});
+
+	it("lists the supported targets on a host no binary is built for", async () => {
+		const asked: string[] = [];
+		const { sigil } = await withRequire(
+			(id) => {
+				asked.push(id);
+				return standIn();
+			},
+			{ platform: "linux", arch: "riscv64" },
+		);
+
+		const refusal = await refusalOf(sigil);
+
+		expect(asked).toHaveLength(0);
+		expect(String(refusal)).toContain(
+			"Fix: no prebuilt binary for linux-riscv64; sigil ships one for linux-x64, linux-arm64, darwin-x64, darwin-arm64, win32-x64.",
+		);
+	});
 });
